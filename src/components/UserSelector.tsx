@@ -9,11 +9,29 @@ interface Model {
   name: string;
 }
 
+interface ProviderFeatures {
+  thinking: boolean;
+  reasoningEffort: string[];
+  thinkingAdaptive: boolean;
+  customModel: boolean;
+}
+
+interface ProviderDefaults {
+  thinking?: boolean;
+  reasoning_effort?: string;
+  max_tokens?: number;
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+}
+
 interface Provider {
   id: string;
   name: string;
   models: Model[];
   supportsCustomModel?: boolean;
+  features?: ProviderFeatures;
+  defaults?: ProviderDefaults;
 }
 
 interface ModelConfig {
@@ -30,6 +48,12 @@ interface ModelSelectorProps {
   setIsCustomModel: (value: boolean) => void;
   customModel: string;
   setCustomModel: (value: string) => void;
+
+  // Thinking / reasoning controls
+  thinkingEnabled: boolean;
+  setThinkingEnabled: (value: boolean) => void;
+  reasoningEffort: string;
+  setReasoningEffort: (value: string) => void;
 
   // File filter configuration
   showFileFilters?: boolean;
@@ -52,6 +76,10 @@ export default function UserSelector({
   setIsCustomModel,
   customModel,
   setCustomModel,
+  thinkingEnabled,
+  setThinkingEnabled,
+  reasoningEffort,
+  setReasoningEffort,
 
   // File filter configuration
   showFileFilters = false,
@@ -330,6 +358,74 @@ next.config.js
             </select>
           )}
         </div>
+
+        {/* Thinking / Reasoning controls */}
+        {(() => {
+          const currentProvider = modelConfig?.providers.find((p: Provider) => p.id === provider);
+          const features = currentProvider?.features;
+          if (!features?.thinking && !features?.thinkingAdaptive) return null;
+
+          return (
+            <div className="space-y-3 p-3 rounded-md border border-[var(--border-color)]/50 bg-[var(--background)]/30">
+              {/* Thinking toggle */}
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-[var(--foreground)]">
+                  {t.form?.thinkingMode || 'Thinking Mode'}
+                </label>
+                <div
+                  className="relative flex items-center cursor-pointer"
+                  onClick={() => {
+                    setThinkingEnabled(!thinkingEnabled);
+                    if (!thinkingEnabled) {
+                      // When enabling, set default effort if none selected
+                      if (!reasoningEffort && features.reasoningEffort.length > 0) {
+                        setReasoningEffort(features.reasoningEffort[features.reasoningEffort.length - 1]);
+                      }
+                    }
+                  }}
+                >
+                  <div className={`w-10 h-5 rounded-full transition-colors ${thinkingEnabled ? 'bg-[var(--accent-primary)]' : 'bg-gray-300 dark:bg-gray-600'}`}></div>
+                  <div className={`absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white transition-transform transform ${thinkingEnabled ? 'translate-x-5' : ''}`}></div>
+                </div>
+              </div>
+
+              {/* Reasoning effort selector */}
+              {thinkingEnabled && features.reasoningEffort.length > 0 && (
+                <div>
+                  <label className="block text-xs text-[var(--muted)] mb-1.5">
+                    {t.form?.reasoningEffort || 'Reasoning Effort'}
+                  </label>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {features.reasoningEffort.map((level: string) => (
+                      <button
+                        key={level}
+                        type="button"
+                        onClick={() => setReasoningEffort(level)}
+                        className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                          reasoningEffort === level
+                            ? 'bg-[var(--accent-primary)]/20 border-[var(--accent-primary)] text-[var(--accent-primary)]'
+                            : 'border-[var(--border-color)]/50 text-[var(--muted)] hover:border-[var(--accent-primary)]/50'
+                        }`}
+                      >
+                        {level}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Adaptive thinking (Claude) */}
+              {features.thinkingAdaptive && thinkingEnabled && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-[var(--muted)]">
+                    {t.form?.adaptiveThinking || 'Adaptive thinking'}
+                  </span>
+                  <span className="text-xs text-[var(--accent-primary)]">enabled</span>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Custom model toggle - only when provider supports it */}
         {modelConfig?.providers.find((p: Provider) => p.id === provider)?.supportsCustomModel && (

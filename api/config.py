@@ -364,16 +364,19 @@ if lang_config:
 
 def get_model_config(provider="google", model=None):
     """
-    Get configuration for the specified provider and model
+    Get configuration for the specified provider and model.
+
+    Merges provider-level defaults with model-specific overrides.
+    Provider defaults (temperature, max_tokens, thinking, reasoning_effort)
+    serve as fallback when a model entry doesn't specify them.
 
     Parameters:
-        provider (str): Model provider ('google', 'openai', 'openrouter', 'ollama', 'bedrock')
+        provider (str): Model provider
         model (str): Model name, or None to use default model
 
     Returns:
         dict: Configuration containing model_client, model and other parameters
     """
-    # Get provider configuration
     if "providers" not in configs:
         raise ValueError("Provider configuration not loaded")
 
@@ -385,34 +388,31 @@ def get_model_config(provider="google", model=None):
     if not model_client:
         raise ValueError(f"Model client not specified for provider '{provider}'")
 
-    # If model not provided, use default model for the provider
     if not model:
         model = provider_config.get("default_model")
         if not model:
             raise ValueError(f"No default model specified for provider '{provider}'")
 
-    # Get model parameters (if present)
-    model_params = {}
+    # Merge provider defaults with model-specific params
+    provider_defaults = provider_config.get("defaults", {}).copy()
     if model in provider_config.get("models", {}):
-        model_params = provider_config["models"][model]
+        model_overrides = provider_config["models"][model]
     else:
         default_model = provider_config.get("default_model")
-        model_params = provider_config["models"][default_model]
+        model_overrides = provider_config["models"].get(default_model, {})
+    merged = {**provider_defaults, **model_overrides}
 
-    # Prepare base configuration
-    result = {
-        "model_client": model_client,
-    }
+    result = {"model_client": model_client}
 
-    # Provider-specific adjustments
     if provider == "ollama":
-        # Ollama uses a slightly different parameter structure
-        if "options" in model_params:
-            result["model_kwargs"] = {"model": model, **model_params["options"]}
+        if "options" in merged:
+            result["model_kwargs"] = {"model": model, **merged["options"]}
+            for k in ["temperature", "top_p", "num_ctx"]:
+                if k in merged:
+                    result["model_kwargs"][k] = merged[k]
         else:
-            result["model_kwargs"] = {"model": model}
+            result["model_kwargs"] = {"model": model, **{k: v for k, v in merged.items() if k != "options"}}
     else:
-        # Standard structure for other providers
-        result["model_kwargs"] = {"model": model, **model_params}
+        result["model_kwargs"] = {"model": model, **merged}
 
     return result

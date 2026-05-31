@@ -58,6 +58,10 @@ class ChatCompletionRequest(BaseModel):
     )
     model: Optional[str] = Field(None, description="Model name for the specified provider")
 
+    # thinking / reasoning parameters
+    thinking_enabled: Optional[bool] = Field(None, description="Override thinking mode on/off")
+    reasoning_effort: Optional[str] = Field(None, description="Override reasoning effort level")
+
     language: Optional[str] = Field("en", description="Language for content generation (e.g., 'en', 'ja', 'zh', 'es', 'kr', 'vi')")
     excluded_dirs: Optional[str] = Field(None, description="Comma-separated list of directories to exclude from processing")
     excluded_files: Optional[str] = Field(None, description="Comma-separated list of file patterns to exclude from processing")
@@ -442,6 +446,13 @@ This file contains...
         prompt += f"<query>\n{query}\n</query>\n\nAssistant: "
 
         model_config = get_model_config(request.provider, request.model)["model_kwargs"]
+        # Apply runtime thinking overrides from request
+        if request.thinking_enabled is not None:
+            model_config["thinking"] = request.thinking_enabled
+        elif request.thinking_enabled is False:
+            model_config.pop("thinking", None)
+        if request.reasoning_effort:
+            model_config["reasoning_effort"] = request.reasoning_effort
         tool_executor = None  # for DeepSeek agent loop
         openai_tool_executor = None  # for OpenAI GPT-5 agent loop
 

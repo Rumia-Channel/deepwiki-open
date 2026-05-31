@@ -125,6 +125,20 @@ class Model(BaseModel):
     id: str = Field(..., description="Model identifier")
     name: str = Field(..., description="Display name for the model")
 
+class ProviderFeatures(BaseModel):
+    thinking: bool = Field(False, description="Supports thinking/reasoning toggle")
+    reasoningEffort: List[str] = Field(default_factory=list, description="Available reasoning effort levels")
+    thinkingAdaptive: bool = Field(False, description="Supports adaptive thinking (Claude)")
+    customModel: bool = Field(False, description="Supports custom model input")
+
+class ProviderDefaults(BaseModel):
+    thinking: Optional[bool] = Field(None, description="Default thinking on/off")
+    reasoning_effort: Optional[str] = Field(None, description="Default reasoning effort")
+    max_tokens: Optional[int] = Field(None, description="Default max output tokens")
+    temperature: Optional[float] = Field(None, description="Default temperature")
+    top_p: Optional[float] = Field(None, description="Default top_p")
+    top_k: Optional[int] = Field(None, description="Default top_k")
+
 class Provider(BaseModel):
     """
     Model for LLM provider configuration
@@ -133,6 +147,8 @@ class Provider(BaseModel):
     name: str = Field(..., description="Display name for the provider")
     models: List[Model] = Field(..., description="List of available models for this provider")
     supportsCustomModel: Optional[bool] = Field(False, description="Whether this provider supports custom models")
+    features: Optional[ProviderFeatures] = Field(None, description="Provider capability flags for UI controls")
+    defaults: Optional[ProviderDefaults] = Field(None, description="Provider default parameter values")
 
 class ModelConfig(BaseModel):
     """
@@ -185,18 +201,37 @@ async def get_model_config():
         # Add provider configuration based on config.py
         for provider_id, provider_config in configs["providers"].items():
             models = []
-            # Add models from config
             for model_id in provider_config["models"].keys():
-                # Get a more user-friendly display name if possible
                 models.append(Model(id=model_id, name=model_id))
 
-            # Add provider with its models
+            # Build features from provider config
+            features_raw = provider_config.get("features", {})
+            features = ProviderFeatures(
+                thinking=features_raw.get("thinking", False),
+                reasoningEffort=features_raw.get("reasoningEffort", []),
+                thinkingAdaptive=features_raw.get("thinkingAdaptive", False),
+                customModel=features_raw.get("customModel", False),
+            ) if features_raw else None
+
+            # Build defaults from provider config
+            defaults_raw = provider_config.get("defaults", {})
+            defaults = ProviderDefaults(
+                thinking=defaults_raw.get("thinking"),
+                reasoning_effort=defaults_raw.get("reasoning_effort"),
+                max_tokens=defaults_raw.get("max_tokens"),
+                temperature=defaults_raw.get("temperature"),
+                top_p=defaults_raw.get("top_p"),
+                top_k=defaults_raw.get("top_k"),
+            ) if defaults_raw else None
+
             providers.append(
                 Provider(
                     id=provider_id,
                     name=f"{provider_id.capitalize()}",
-                    supportsCustomModel=provider_config.get("supportsCustomModel", False),
-                    models=models
+                    supportsCustomModel=features_raw.get("customModel", False),
+                    models=models,
+                    features=features,
+                    defaults=defaults,
                 )
             )
 

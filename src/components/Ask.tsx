@@ -64,6 +64,8 @@ const Ask: React.FC<AskProps> = ({
   const [customSelectedModel, setCustomSelectedModel] = useState(customModel);
   const [isModelSelectionModalOpen, setIsModelSelectionModalOpen] = useState(false);
   const [isComprehensiveView, setIsComprehensiveView] = useState(true);
+  const [thinkingEnabled, setThinkingEnabled] = useState(false);
+  const [reasoningEffort, setReasoningEffort] = useState('');
 
   // Get language context for translations
   const { messages } = useLanguage();
@@ -320,7 +322,9 @@ const Ask: React.FC<AskProps> = ({
         messages: newHistory.map(msg => ({ role: msg.role as 'user' | 'assistant', content: msg.content })),
         provider: selectedProvider,
         model: isCustomSelectedModel ? customSelectedModel : selectedModel,
-        language: language
+        language: language,
+        thinking_enabled: thinkingEnabled,
+        reasoning_effort: reasoningEffort || undefined
       };
 
       // Add tokens if available
@@ -341,40 +345,6 @@ const Ask: React.FC<AskProps> = ({
           fullResponse += message;
           setResponse(fullResponse);
 
-          // Extract research stage if this is a deep research response
-          if (deepResearch) {
-            const stage = extractResearchStage(fullResponse, newIteration);
-            if (stage) {
-              // Add the stage to the research stages if it's not already there
-              setResearchStages(prev => {
-                // Check if we already have this stage
-                const existingStageIndex = prev.findIndex(s => s.iteration === stage.iteration && s.type === stage.type);
-                if (existingStageIndex >= 0) {
-                  // Update existing stage
-                  const newStages = [...prev];
-                  newStages[existingStageIndex] = stage;
-                  return newStages;
-                } else {
-                  // Add new stage
-                  return [...prev, stage];
-                }
-              });
-
-              // Update current stage index to the latest stage
-              setCurrentStageIndex(researchStages.length);
-            }
-          }
-        },
-        // Error handler
-        (error: Event) => {
-          console.error('WebSocket error:', error);
-          setResponse(prev => prev + '\n\nError: WebSocket connection failed. Falling back to HTTP...');
-
-          // Fallback to HTTP if WebSocket fails
-          fallbackToHttp(requestBody);
-        },
-        // Close handler
-        () => {
           // Check if research is complete when the WebSocket closes
           const isComplete = checkIfResearchComplete(fullResponse);
 
@@ -562,7 +532,9 @@ const Ask: React.FC<AskProps> = ({
         messages: newHistory.map(msg => ({ role: msg.role as 'user' | 'assistant', content: msg.content })),
         provider: selectedProvider,
         model: isCustomSelectedModel ? customSelectedModel : selectedModel,
-        language: language
+        language: language,
+        thinking_enabled: thinkingEnabled,
+        reasoning_effort: reasoningEffort || undefined
       };
 
       // Add tokens if available
@@ -913,6 +885,10 @@ const Ask: React.FC<AskProps> = ({
         setCustomModel={setCustomSelectedModel}
         isComprehensiveView={isComprehensiveView}
         setIsComprehensiveView={setIsComprehensiveView}
+        thinkingEnabled={thinkingEnabled}
+        setThinkingEnabled={setThinkingEnabled}
+        reasoningEffort={reasoningEffort}
+        setReasoningEffort={setReasoningEffort}
         showFileFilters={false}
         onApply={() => {
           console.log('Model selection applied:', selectedProvider, selectedModel);

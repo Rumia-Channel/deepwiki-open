@@ -30,6 +30,8 @@ export interface ChatCompletionRequest {
   language?: string;
   excluded_dirs?: string;
   excluded_files?: string;
+  thinking_enabled?: boolean;
+  reasoning_effort?: string;
 }
 
 /**

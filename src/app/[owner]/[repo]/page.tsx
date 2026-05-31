@@ -106,7 +106,9 @@ const addTokensToRequestBody = (
   excludedDirs?: string,
   excludedFiles?: string,
   includedDirs?: string,
-  includedFiles?: string
+  includedFiles?: string,
+  thinkingEnabled?: boolean,
+  reasoningEffort?: string
 ): void => {
   if (token !== '') {
     requestBody.token = token;
@@ -120,6 +122,14 @@ const addTokensToRequestBody = (
   }
 
   requestBody.language = language;
+
+  // Add thinking/reasoning parameters
+  if (thinkingEnabled) {
+    requestBody.thinking_enabled = thinkingEnabled;
+  }
+  if (reasoningEffort) {
+    requestBody.reasoning_effort = reasoningEffort;
+  }
 
   // Add file filter parameters if provided
   if (excludedDirs) {
@@ -246,6 +256,8 @@ export default function RepoWikiPage() {
   const [isCustomSelectedModelState, setIsCustomSelectedModelState] = useState(isCustomModelParam);
   const [customSelectedModelState, setCustomSelectedModelState] = useState(customModelParam);
   const [showModelOptions, setShowModelOptions] = useState(false); // Controls whether to show model options
+  const [thinkingEnabled, setThinkingEnabled] = useState(false);
+  const [reasoningEffort, setReasoningEffort] = useState('');
   const excludedDirs = searchParams.get('excluded_dirs') || '';
   const excludedFiles = searchParams.get('excluded_files') || '';
   const [modelExcludedDirs, setModelExcludedDirs] = useState(excludedDirs);
@@ -537,7 +549,7 @@ Remember:
         };
 
         // Add tokens if available
-        addTokensToRequestBody(requestBody, currentToken, effectiveRepoInfo.type, selectedProviderState, selectedModelState, isCustomSelectedModelState, customSelectedModelState, language, modelExcludedDirs, modelExcludedFiles, modelIncludedDirs, modelIncludedFiles);
+        addTokensToRequestBody(requestBody, currentToken, effectiveRepoInfo.type, selectedProviderState, selectedModelState, isCustomSelectedModelState, customSelectedModelState, language, modelExcludedDirs, modelExcludedFiles, modelIncludedDirs, modelIncludedFiles, thinkingEnabled, reasoningEffort);
 
         // Use WebSocket for communication
         let content = '';
@@ -2255,6 +2267,10 @@ IMPORTANT:
         setIsCustomModel={setIsCustomSelectedModelState}
         customModel={customSelectedModelState}
         setCustomModel={setCustomSelectedModelState}
+        thinkingEnabled={thinkingEnabled}
+        setThinkingEnabled={setThinkingEnabled}
+        reasoningEffort={reasoningEffort}
+        setReasoningEffort={setReasoningEffort}
         isComprehensiveView={isComprehensiveView}
         setIsComprehensiveView={setIsComprehensiveView}
         showFileFilters={true}

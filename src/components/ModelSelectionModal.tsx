@@ -19,6 +19,12 @@ interface ModelSelectionModalProps {
   setCustomModel: (value: string) => void;
   onApply: (token?: string) => void;
 
+  // Thinking / reasoning
+  thinkingEnabled: boolean;
+  setThinkingEnabled: (value: boolean) => void;
+  reasoningEffort: string;
+  setReasoningEffort: (value: string) => void;
+
   // Wiki type options
   isComprehensiveView: boolean;
   setIsComprehensiveView: (value: boolean) => void;
@@ -57,6 +63,10 @@ export default function ModelSelectionModal({
   customModel,
   setCustomModel,
   onApply,
+  thinkingEnabled,
+  setThinkingEnabled,
+  reasoningEffort,
+  setReasoningEffort,
   isComprehensiveView,
   setIsComprehensiveView,
   excludedDirs = '',
@@ -83,6 +93,8 @@ export default function ModelSelectionModal({
   const [localModel, setLocalModel] = useState(model);
   const [localIsCustomModel, setLocalIsCustomModel] = useState(isCustomModel);
   const [localCustomModel, setLocalCustomModel] = useState(customModel);
+  const [localThinkingEnabled, setLocalThinkingEnabled] = useState(thinkingEnabled);
+  const [localReasoningEffort, setLocalReasoningEffort] = useState(reasoningEffort);
   const [localIsComprehensiveView, setLocalIsComprehensiveView] = useState(isComprehensiveView);
   const [localExcludedDirs, setLocalExcludedDirs] = useState(excludedDirs);
   const [localExcludedFiles, setLocalExcludedFiles] = useState(excludedFiles);
@@ -101,6 +113,8 @@ export default function ModelSelectionModal({
       setLocalModel(model);
       setLocalIsCustomModel(isCustomModel);
       setLocalCustomModel(customModel);
+      setLocalThinkingEnabled(thinkingEnabled);
+      setLocalReasoningEffort(reasoningEffort);
       setLocalIsComprehensiveView(isComprehensiveView);
       setLocalExcludedDirs(excludedDirs);
       setLocalExcludedFiles(excludedFiles);
@@ -118,6 +132,8 @@ export default function ModelSelectionModal({
     setModel(localModel);
     setIsCustomModel(localIsCustomModel);
     setCustomModel(localCustomModel);
+    setThinkingEnabled(localThinkingEnabled);
+    setReasoningEffort(localReasoningEffort);
     setIsComprehensiveView(localIsComprehensiveView);
     if (setExcludedDirs) setExcludedDirs(localExcludedDirs);
     if (setExcludedFiles) setExcludedFiles(localExcludedFiles);
@@ -178,6 +194,10 @@ export default function ModelSelectionModal({
               setIsCustomModel={setLocalIsCustomModel}
               customModel={localCustomModel}
               setCustomModel={setLocalCustomModel}
+              thinkingEnabled={localThinkingEnabled}
+              setThinkingEnabled={setLocalThinkingEnabled}
+              reasoningEffort={localReasoningEffort}
+              setReasoningEffort={setLocalReasoningEffort}
               showFileFilters={showFileFilters}
               excludedDirs={localExcludedDirs}
               setExcludedDirs={showFileFilters ? (value: string) => setLocalExcludedDirs(value) : undefined}
