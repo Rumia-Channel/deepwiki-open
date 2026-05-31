@@ -40,8 +40,8 @@
         "openai/gpt-5-nano": {},
         "openai/gpt-4.1": {},
         "openai/o3": {},
-        "anthropic/claude-3.7-sonnet": {},
-        "anthropic/claude-3.5-sonnet": {}
+        "anthropic/claude-sonnet-4-6": {},
+        "anthropic/claude-opus-4-8": {}
       }
     },
     "ollama": {
@@ -55,17 +55,16 @@
       }
     },
     "bedrock": {
-      "features": { "thinking": true, "reasoningEffort": [], "thinkingAdaptive": true, "customModel": true },
-      "defaults": { "temperature": 0.7, "max_tokens": 65536, "thinking": "adaptive" },
-      "default_model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+      "features": { "thinking": true, "thinkingAdaptive": true, "customModel": true },
+      "defaults": { "thinking": "adaptive", "max_tokens": 65536 },
+      "default_model": "anthropic.claude-sonnet-4-6-v1:0",
       "client_class": "BedrockClient",
       "models": {
-        "us.anthropic.claude-sonnet-4-5-20250929-v1:0": { "max_tokens": 65536, "thinking": "adaptive" },
-        "us.anthropic.claude-opus-4-5-20251101-v1:0": { "max_tokens": 65536, "thinking": "adaptive" },
-        "us.anthropic.claude-haiku-4-5-20251001-v1:0": { "max_tokens": 16384 },
-        "us.anthropic.claude-3-5-sonnet-20240620-v1:0": { "max_tokens": 4096 },
-        "anthropic.claude-3-haiku-20240307-v1:0": { "max_tokens": 4096 },
-        "anthropic.claude-3-opus-20240229-v1:0": { "max_tokens": 4096 }
+        "anthropic.claude-opus-4-8-v1:0": { "max_tokens": 65536, "thinking": "adaptive" },
+        "anthropic.claude-opus-4-7-v1:0": { "max_tokens": 65536, "thinking": "adaptive" },
+        "anthropic.claude-opus-4-6-v1:0": { "max_tokens": 65536, "thinking": "adaptive" },
+        "anthropic.claude-sonnet-4-6-v1:0": { "max_tokens": 65536, "thinking": "adaptive" },
+        "anthropic.claude-haiku-4-5-20251001-v1:0": { "max_tokens": 16384, "thinking": "enabled" }
       }
     },
     "azure": {
