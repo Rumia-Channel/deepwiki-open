@@ -23,16 +23,16 @@
     },
     "openai": {
       "features": { "thinking": true, "reasoningEffort": ["low", "medium", "high", "xhigh"], "customModel": true },
-      "defaults": { "reasoning_effort": "medium", "max_tokens": 65536 },
+      "defaults": { "thinking": true, "reasoning_effort": "medium", "max_tokens": 65536 },
       "default_model": "gpt-5.4-mini",
       "models": {
         "gpt-5.5": { "reasoning_effort": "medium", "max_tokens": 65536 },
         "gpt-5.4": { "reasoning_effort": "medium", "max_tokens": 65536 },
         "gpt-5.4-mini": { "reasoning_effort": "medium", "max_tokens": 65536 },
-        "gpt-5.4-nano": { "temperature": 1.0, "max_tokens": 16384 },
-        "o3": { "reasoning_effort": "high", "max_tokens": 65536 },
-        "o4-mini": { "max_tokens": 65536 },
-        "gpt-4.1": { "temperature": 0.7, "top_p": 0.8, "max_tokens": 16384 }
+        "gpt-5.4-nano": { "thinking": false, "temperature": 1.0, "max_tokens": 16384 },
+        "o3": { "thinking": true, "reasoning_effort": "high", "max_tokens": 65536 },
+        "o4-mini": { "thinking": true, "max_tokens": 65536 },
+        "gpt-4.1": { "thinking": false, "temperature": 0.7, "top_p": 0.8, "max_tokens": 16384 }
       }
     },
     "openrouter": {
