@@ -11,13 +11,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from api.config import get_model_config, configs, OPENROUTER_API_KEY, OPENAI_API_KEY, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+from api.config import get_model_config, configs, OPENROUTER_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
 from api.data_pipeline import count_tokens, get_file_content
 from api.openai_client import OpenAIClient
 from api.openrouter_client import OpenRouterClient
 from api.bedrock_client import BedrockClient
 from api.azureai_client import AzureAIClient
 from api.dashscope_client import DashscopeClient
+from api.deepseek_client import DeepSeekClient
+from api.agent_loop import run_agent_loop
+from api.tools.agent_tools import ToolExecutor
 from api.rag import RAG
 from api.prompts import (
     DEEP_RESEARCH_FIRST_ITERATION_PROMPT,
@@ -64,7 +67,7 @@ class ChatCompletionRequest(BaseModel):
     type: Optional[str] = Field("github", description="Type of repository (e.g., 'github', 'gitlab', 'bitbucket')")
 
     # model parameters
-    provider: str = Field("google", description="Model provider (google, openai, openrouter, ollama, bedrock, azure, dashscope)")
+    provider: str = Field("google", description="Model provider (google, openai, openrouter, ollama, bedrock, azure, dashscope, deepseek)")
     model: Optional[str] = Field(None, description="Model name for the specified provider")
 
     language: Optional[str] = Field("en", description="Language for content generation (e.g., 'en', 'ja', 'zh', 'es', 'kr', 'vi')")
@@ -449,6 +452,42 @@ async def chat_completions_stream(request: ChatCompletionRequest):
                 model_kwargs=model_kwargs,
                 model_type=ModelType.LLM,
             )
+        elif request.provider == "deepseek":
+            logger.info(f"Using DeepSeek with model: {request.model}")
+
+            if not DEEPSEEK_API_KEY:
+                logger.warning("DEEPSEEK_API_KEY not configured")
+
+            model = DeepSeekClient()
+            model_kwargs = {
+                "model": request.model,
+                "stream": True,
+                "temperature": model_config.get("temperature", 0.7),
+            }
+            if "top_p" in model_config and "thinking" not in model_config:
+                model_kwargs["top_p"] = model_config["top_p"]
+            if "max_tokens" in model_config:
+                model_kwargs["max_tokens"] = model_config["max_tokens"]
+
+            # DeepSeek thinking mode
+            if model_config.get("thinking"):
+                thinking_body = {"type": "enabled"}
+                if model_config.get("reasoning_effort"):
+                    thinking_body["reasoning_effort"] = model_config["reasoning_effort"]
+                model_kwargs["thinking"] = thinking_body
+                model_kwargs.pop("temperature", None)
+                model_kwargs.pop("top_p", None)
+
+            api_kwargs = model.convert_inputs_to_api_kwargs(
+                input=prompt,
+                model_kwargs=model_kwargs,
+                model_type=ModelType.LLM,
+            )
+            # Create tool executor for agent loop
+            tool_executor = ToolExecutor(
+                rag_instance=request_rag,
+                repo_cache_path=request_rag.db_manager.repo_paths.get("save_repo_dir") if request_rag.db_manager.repo_paths else None
+            )
         else:
             # Initialize Google Generative AI model (default provider)
             model = genai.GenerativeModel(
@@ -537,8 +576,6 @@ async def chat_completions_stream(request: ChatCompletionRequest):
                         response = await model.acall(
                             api_kwargs=api_kwargs, model_type=ModelType.LLM
                         )
-                        # DashscopeClient.acall with stream=True returns an async
-                        # generator of text chunks
                         async for text in response:
                             if text:
                                 yield text
@@ -549,6 +586,14 @@ async def chat_completions_stream(request: ChatCompletionRequest):
                             "Please check that you have set the DASHSCOPE_API_KEY (and optionally "
                             "DASHSCOPE_WORKSPACE_ID) environment variables with valid values."
                         )
+                elif request.provider == "deepseek":
+                    try:
+                        logger.info("Starting DeepSeek agent loop")
+                        async for chunk in run_agent_loop(model, api_kwargs, tool_executor):
+                            yield chunk
+                    except Exception as e_deepseek:
+                        logger.error(f"Error with DeepSeek agent: {str(e_deepseek)}")
+                        yield f"\nError with DeepSeek agent: {str(e_deepseek)}\n\nPlease check that you have set the DEEPSEEK_API_KEY environment variable with a valid API key."
                 else:
                     # Google Generative AI (default provider)
                     response = model.generate_content(prompt, stream=True)
@@ -710,6 +755,20 @@ async def chat_completions_stream(request: ChatCompletionRequest):
                                     "Please check that you have set the DASHSCOPE_API_KEY (and optionally "
                                     "DASHSCOPE_WORKSPACE_ID) environment variables with valid values."
                                 )
+                        elif request.provider == "deepseek":
+                            try:
+                                fallback_api_kwargs = model.convert_inputs_to_api_kwargs(
+                                    input=simplified_prompt,
+                                    model_kwargs=model_kwargs,
+                                    model_type=ModelType.LLM,
+                                )
+
+                                logger.info("Making fallback DeepSeek agent call")
+                                async for chunk in run_agent_loop(model, fallback_api_kwargs, tool_executor):
+                                    yield chunk
+                            except Exception as e_fallback:
+                                logger.error(f"Error with DeepSeek API fallback: {str(e_fallback)}")
+                                yield f"\nError with DeepSeek API fallback: {str(e_fallback)}\n\nPlease check that you have set the DEEPSEEK_API_KEY environment variable with a valid API key."
                         else:
                             # Google Generative AI fallback (default provider)
                             model_config = get_model_config(request.provider, request.model)

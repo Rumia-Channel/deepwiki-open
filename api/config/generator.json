@@ -193,6 +193,22 @@
           "top_p": 0.8
         }
       }
+    },
+    "deepseek": {
+      "default_model": "deepseek-v4-flash",
+      "supportsCustomModel": true,
+      "models": {
+        "deepseek-v4-flash": {
+          "thinking": true,
+          "reasoning_effort": "max",
+          "max_tokens": 65536
+        },
+        "deepseek-v4-pro": {
+          "thinking": true,
+          "reasoning_effort": "max",
+          "max_tokens": 65536
+        }
+      }
     }
   }
 }
