@@ -2,21 +2,25 @@
 
 Supports both DeepSeek V4 and OpenAI GPT-5 series.
 
-DeepSeek specifics:
+DeepSeek V4 specifics (validated against DeepSeek-Reasonix production code):
   - thinking via extra_body: {"thinking": {"type": "enabled"}}
   - reasoning_effort inside thinking dict or as top-level
-  - reasoning_content MUST be passed back for tool-call turns (400 error otherwise)
+  - reasoning_content is a RESPONSE-ONLY field — do NOT re-upload it.
+    Reasonix measures ~500 extra tokens/turn with zero cache or coherence gain.
+    The API accepts it silently but bills it as ordinary prompt input.
+  - Pure-tool-call assistant messages MUST have content: "" (empty string, not null).
+    DeepSeek's strict deserializer rejects missing `content` field.
 
 OpenAI GPT-5 specifics:
   - reasoning_effort as top-level parameter (medium/high/xhigh)
-  - GPT-5 also returns reasoning_content in streaming deltas
-  - reasoning items should be passed back for tool-call turns
+  - GPT-5 also returns reasoning_content in streaming deltas (no cost to re-send)
   - Prompt caching is automatic (transparent)
 
 Shared behavior:
-  - Streaming deltas contain: reasoning_content (thinking tokens), content (final answer), tool_calls
+  - Streaming deltas contain: reasoning_content (thinking), content (answer), tool_calls
   - Tool calls accumulate across chunk deltas (index-based merging)
-  - Loop continues while tool_calls are present, stops on final content
+  - Tool call names are surfaced immediately when known (before args finish streaming)
+  - Loop continues while tool_calls present, stops on final content
 """
 
 import logging
@@ -67,6 +71,7 @@ async def run_agent_loop(
         accumulated_content = ""
         accumulated_reasoning = ""
         tool_calls_acc: List[Dict[str, Any]] = []
+        tool_names_yielded: set = set()
         finish_reason = None
 
         response = await model_client.acall(
@@ -84,7 +89,7 @@ async def run_agent_loop(
             if delta is None:
                 continue
 
-            # Collect reasoning_content (DeepSeek + GPT-5)
+            # Collect reasoning_content (display-only, never re-sent to API)
             reasoning = getattr(delta, "reasoning_content", None)
             if reasoning:
                 accumulated_reasoning += reasoning
@@ -115,6 +120,12 @@ async def run_agent_loop(
                         if tc_delta.function.arguments:
                             tool_calls_acc[idx]["function"]["arguments"] += tc_delta.function.arguments
 
+                        # Surface tool name immediately when first known (Reasonix pattern)
+                        name = tool_calls_acc[idx]["function"]["name"]
+                        if name and name not in tool_names_yielded:
+                            tool_names_yielded.add(name)
+                            yield f"\n*[calling {name}...]*\n"
+
         log.debug(
             f"Round {round_idx + 1} complete: "
             f"content={len(accumulated_content)} chars, "
@@ -123,43 +134,43 @@ async def run_agent_loop(
             f"finish={finish_reason}"
         )
 
-        if finish_reason == "insufficient_system_resource":
-            yield "\n\n[Inference interrupted due to system resource shortage. Response may be incomplete.]"
+        # Handle abnormal termination
+        if finish_reason == "length":
+            yield "\n\n[Response truncated: max output tokens reached.]"
+        elif finish_reason == "content_filter":
+            yield "\n\n[Response blocked by content filter.]"
+        elif finish_reason == "insufficient_system_resource":
+            yield "\n\n[Inference interrupted due to system resource shortage.]"
+        if finish_reason and finish_reason not in ("stop", "tool_calls"):
             if accumulated_content:
                 yield accumulated_content
             return
 
         # If model made tool calls, execute and continue
         if tool_calls_acc:
-            assistant_msg: Dict[str, Any] = {"role": "assistant"}
-            if accumulated_content:
-                assistant_msg["content"] = accumulated_content
-            else:
-                assistant_msg["content"] = None
-
-            # Include reasoning_content (required for DeepSeek tool-call turns, best-effort for OpenAI)
-            if accumulated_reasoning:
-                assistant_msg["reasoning_content"] = accumulated_reasoning
-
-            assistant_msg["tool_calls"] = tool_calls_acc
+            # Assistant message: content MUST be "" (empty string), never null.
+            # DeepSeek's strict deserializer rejects missing `content`.
+            # reasoning_content is deliberately NOT sent back — Reasonix measured
+            # ~500 tokens/turn cost with zero benefit (the API accepts it silently).
+            assistant_msg: Dict[str, Any] = {
+                "role": "assistant",
+                "content": accumulated_content or "",
+                "tool_calls": tool_calls_acc,
+            }
             messages.append(assistant_msg)
 
-            tool_results = []
             for tc in tool_calls_acc:
                 log.info(
                     f"Executing tool: {tc['function']['name']}"
                     f"({tc['function']['arguments'][:100]})"
                 )
                 result = tool_executor.execute(_make_tool_call_obj(tc))
-                tool_results.append(result)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],
                     "content": result,
                 })
 
-            tool_names = [tc["function"]["name"] for tc in tool_calls_acc]
-            yield f"\n\n*[Used tools: {', '.join(tool_names)}]*\n\n"
             continue
 
         # Final answer

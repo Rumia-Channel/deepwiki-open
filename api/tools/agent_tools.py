@@ -5,14 +5,31 @@ Exposes repository analysis tools that the model can autonomously invoke:
   - read_file: Read file contents from the cached repository
   - list_repo_files: List files matching a glob pattern
 
-Each tool returns a JSON-serializable result. Tool execution functions
-have access to the RAG instance for retrieval and repo path info.
+Each tool returns a JSON-serializable result. Output is capped at 32KB
+(per Reasonix: maxToolOutputBytes = 32*1024) to prevent a single tool
+call from blowing the context window.
 """
 
 import logging
 from typing import List, Dict, Any, Optional, Callable
 
 log = logging.getLogger(__name__)
+
+# Maximum tool output bytes before head+tail truncation.
+# ~32KB ≈ 8K tokens — enough for a full file read, while preventing one
+# accidental large file read from blowing the context window.
+_MAX_TOOL_OUTPUT = 32 * 1024
+
+
+def _truncate_output(text: str) -> str:
+    """Head+tail truncate when exceeding _MAX_TOOL_OUTPUT."""
+    if len(text) <= _MAX_TOOL_OUTPUT:
+        return text
+    keep = _MAX_TOOL_OUTPUT // 2
+    head = text[:keep]
+    tail = text[-keep:]
+    omitted = len(text) - len(head) - len(tail)
+    return head + f"\n\n…[truncated {omitted} of {len(text)} bytes]…\n\n" + tail
 
 # Tool definitions in OpenAI/DeepSeek function-calling format
 AGENT_TOOLS: List[Dict[str, Any]] = [
@@ -120,6 +137,7 @@ class ToolExecutor:
 
         try:
             result = handler(**args)
+            result = _truncate_output(result)
             log.info(f"Tool {name} executed successfully ({len(result)} chars)")
             return result
         except Exception as e:
