@@ -133,7 +133,7 @@ def download_repo(repo_url: str, local_path: str, repo_type: str = None, access_
         logger.info(f"Cloning repository from {repo_url} to {local_path}")
         # We use repo_url in the log to avoid exposing the token in logs
         result = subprocess.run(
-            ["git", "clone", "--depth=1", "--single-branch", clone_url, local_path],
+            ["git", "clone", "--depth=1", "--single-branch", "--recurse-submodules", clone_url, local_path],
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -188,8 +188,14 @@ def read_all_documents(path: str, embedder_type: str = None, is_ollama_embedder:
     documents = []
     # File extensions to look for, prioritizing code files
     code_extensions = [".py", ".js", ".ts", ".java", ".cpp", ".c", ".h", ".hpp", ".go", ".rs",
-                       ".jsx", ".tsx", ".html", ".css", ".php", ".swift", ".cs"]
-    doc_extensions = [".md", ".txt", ".rst", ".json", ".yaml", ".yml"]
+                       ".jsx", ".tsx", ".html", ".css", ".php", ".swift", ".cs",
+                       ".rb", ".scala", ".kt", ".kts", ".sh", ".bash", ".sql",
+                       ".proto", ".graphql", ".vue", ".svelte", ".tf", ".xml"]
+    doc_extensions = [".md", ".txt", ".rst", ".json", ".yaml", ".yml", ".toml",
+                      ".cfg", ".ini", ".env.example"]
+    # Extensionless source files matched by exact filename
+    extensionless_files = {"Makefile", "Dockerfile", "CMakeLists.txt", "BUILD",
+                           "WORKSPACE", "AGENTS.md", "CLAUDE.md"}
 
     # Determine filtering mode: inclusion or exclusion
     use_inclusion_mode = (included_dirs is not None and len(included_dirs) > 0) or (included_files is not None and len(included_files) > 0)
@@ -297,8 +303,11 @@ def read_all_documents(path: str, embedder_type: str = None, is_ollama_embedder:
             for excluded in excluded_dirs:
                 clean_excluded = excluded.strip("./").rstrip("/")
                 if clean_excluded in file_path_parts:
-                    is_excluded = True
-                    break
+                    # Require exact path-component match, not substring.
+                    # e.g. "docs" matches "./docs/" but not "./mydocs/".
+                    if any(part == clean_excluded for part in file_path_parts):
+                        is_excluded = True
+                        break
 
             # Check if file matches excluded file patterns
             if not is_excluded:
@@ -376,6 +385,34 @@ def read_all_documents(path: str, embedder_type: str = None, is_ollama_embedder:
                             "type": ext[1:],
                             "is_code": False,
                             "is_implementation": False,
+                            "title": relative_path,
+                            "token_count": token_count,
+                        },
+                    )
+                    documents.append(doc)
+            except Exception as e:
+                logger.error(f"Error reading {file_path}: {e}")
+
+    # Finally, extensionless source files (Makefile, Dockerfile, etc.)
+    for fname in extensionless_files:
+        files = glob.glob(f"{path}/**/{fname}", recursive=True)
+        for file_path in files:
+            if not should_process_file(file_path, use_inclusion_mode, included_dirs, included_files, excluded_dirs, excluded_files):
+                continue
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                    content = f.read()
+                if content.strip():
+                    relative_path = os.path.relpath(file_path, path).replace('\\', '/')
+                    token_count = count_tokens(content, embedder_type=embedder_type, is_ollama_embedder=is_ollama_embedder)
+                    doc = Document(
+                        text=content,
+                        meta_data={
+                            "file_path": relative_path,
+                            "file_name": os.path.basename(file_path),
+                            "extension": "",
+                            "is_code": True,
+                            "is_implementation": True,
                             "title": relative_path,
                             "token_count": token_count,
                         },
@@ -817,6 +854,15 @@ class DatabaseManager:
                     download_repo(repo_url_or_path, save_repo_dir, repo_type, access_token)
                 else:
                     logger.info(f"Repository already exists at {save_repo_dir}. Using existing repository.")
+                    # Ensure submodules are initialized for cached repos
+                    try:
+                        subprocess.run(
+                            ["git", "-C", save_repo_dir, "submodule", "update", "--init", "--depth=1", "--recursive"],
+                            check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        )
+                        logger.info("Submodules initialized successfully")
+                    except Exception:
+                        logger.debug("Submodule init skipped (not a git repo or no submodules)")
             else:  # local path
                 repo_name = os.path.basename(repo_url_or_path)
                 save_repo_dir = repo_url_or_path

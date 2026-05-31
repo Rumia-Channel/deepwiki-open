@@ -301,8 +301,6 @@ DEFAULT_EXCLUDED_DIRS: List[str] = [
     "./__pycache__/", "./.pytest_cache/", "./.mypy_cache/", "./.ruff_cache/", "./.coverage/",
     # Build and distribution
     "./dist/", "./build/", "./out/", "./target/", "./bin/", "./obj/",
-    # Documentation
-    "./docs/", "./_docs/", "./site-docs/", "./_site/",
     # IDE specific
     "./.idea/", "./.vscode/", "./.vs/", "./.eclipse/", "./.settings/",
     # Logs and temporary files
@@ -314,10 +312,10 @@ DEFAULT_EXCLUDED_FILES: List[str] = [
     "Pipfile.lock", "requirements.txt.lock", "Cargo.lock", "composer.lock",
     ".lock", ".DS_Store", "Thumbs.db", "desktop.ini", "*.lnk", ".env",
     ".env.*", "*.env", "*.cfg", "*.ini", ".flaskenv", ".gitignore",
-    ".gitattributes", ".gitmodules", ".github", ".gitlab-ci.yml",
+    ".gitattributes", ".github", ".gitlab-ci.yml",
     ".prettierrc", ".eslintrc", ".eslintignore", ".stylelintrc",
     ".editorconfig", ".jshintrc", ".pylintrc", ".flake8", "mypy.ini",
-    "pyproject.toml", "tsconfig.json", "webpack.config.js", "babel.config.js",
+    "package.json", "babel.config.js",
     "rollup.config.js", "jest.config.js", "karma.conf.js", "vite.config.js",
     "next.config.js", "*.min.js", "*.min.css", "*.bundle.js", "*.bundle.css",
     "*.map", "*.gz", "*.zip", "*.tar", "*.tgz", "*.rar", "*.7z", "*.iso",
