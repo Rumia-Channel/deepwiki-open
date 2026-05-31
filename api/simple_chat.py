@@ -331,6 +331,8 @@ async def chat_completions_stream(request: ChatCompletionRequest):
         prompt += f"<query>\n{query}\n</query>\n\nAssistant: "
 
         model_config = get_model_config(request.provider, request.model)["model_kwargs"]
+        tool_executor = None  # for DeepSeek agent loop
+        openai_tool_executor = None  # for OpenAI GPT-5 agent loop
 
         if request.provider == "ollama":
             prompt += " /no_think"
@@ -387,17 +389,22 @@ async def chat_completions_stream(request: ChatCompletionRequest):
             model_kwargs = {
                 "model": request.model,
                 "stream": True,
-                "temperature": model_config["temperature"]
+                "temperature": model_config.get("temperature", 0.7),
             }
-            # Only add top_p if it exists in the model config
-            if "top_p" in model_config:
-                model_kwargs["top_p"] = model_config["top_p"]
+            for key in ["top_p", "max_tokens", "reasoning_effort"]:
+                if key in model_config:
+                    model_kwargs[key] = model_config[key]
 
             api_kwargs = model.convert_inputs_to_api_kwargs(
                 input=prompt,
                 model_kwargs=model_kwargs,
                 model_type=ModelType.LLM
             )
+            # Create tool executor for agent loop (GPT-5 reasoning models)
+            openai_tool_executor = ToolExecutor(
+                rag_instance=request_rag,
+                repo_cache_path=request_rag.db_manager.repo_paths.get("save_repo_dir") if request_rag.db_manager.repo_paths else None
+            ) if "reasoning_effort" in model_config else None
         elif request.provider == "bedrock":
             logger.info(f"Using AWS Bedrock with model: {request.model}")
 
@@ -410,9 +417,13 @@ async def chat_completions_stream(request: ChatCompletionRequest):
             model = BedrockClient()
             model_kwargs = {
                 "model": request.model,
-                "temperature": model_config["temperature"],
-                "top_p": model_config["top_p"]
             }
+            for key in ["temperature", "top_p", "max_tokens"]:
+                if key in model_config:
+                    model_kwargs[key] = model_config[key]
+            # Claude extended thinking
+            if "thinking" in model_config:
+                model_kwargs["thinking"] = model_config["thinking"]
 
             api_kwargs = model.convert_inputs_to_api_kwargs(
                 input=prompt,
@@ -524,21 +535,24 @@ async def chat_completions_stream(request: ChatCompletionRequest):
                         yield f"\nError with OpenRouter API: {str(e_openrouter)}\n\nPlease check that you have set the OPENROUTER_API_KEY environment variable with a valid API key."
                 elif request.provider == "openai":
                     try:
-                        # Get the response and handle it properly using the previously created api_kwargs
-                        logger.info("Making Openai API call")
-                        response = await model.acall(api_kwargs=api_kwargs, model_type=ModelType.LLM)
-                        # Handle streaming response from Openai
-                        async for chunk in response:
-                           choices = getattr(chunk, "choices", [])
-                           if len(choices) > 0:
-                               delta = getattr(choices[0], "delta", None)
-                               if delta is not None:
-                                    text = getattr(delta, "content", None)
-                                    if text is not None:
-                                        yield text
+                        if openai_tool_executor and "reasoning_effort" in model_kwargs:
+                            logger.info("Starting OpenAI GPT-5 agent loop")
+                            async for chunk in run_agent_loop(model, api_kwargs, openai_tool_executor):
+                                yield chunk
+                        else:
+                            logger.info("Making OpenAI API call")
+                            response = await model.acall(api_kwargs=api_kwargs, model_type=ModelType.LLM)
+                            async for chunk in response:
+                               choices = getattr(chunk, "choices", [])
+                               if len(choices) > 0:
+                                   delta = getattr(choices[0], "delta", None)
+                                   if delta is not None:
+                                        text = getattr(delta, "content", None)
+                                        if text is not None:
+                                            yield text
                     except Exception as e_openai:
-                        logger.error(f"Error with Openai API: {str(e_openai)}")
-                        yield f"\nError with Openai API: {str(e_openai)}\n\nPlease check that you have set the OPENAI_API_KEY environment variable with a valid API key."
+                        logger.error(f"Error with OpenAI API: {str(e_openai)}")
+                        yield f"\nError with OpenAI API: {str(e_openai)}\n\nPlease check that you have set the OPENAI_API_KEY environment variable with a valid API key."
                 elif request.provider == "bedrock":
                     try:
                         # Get the response and handle it properly using the previously created api_kwargs
@@ -662,21 +676,22 @@ async def chat_completions_stream(request: ChatCompletionRequest):
                                 yield f"\nError with OpenRouter API fallback: {str(e_fallback)}\n\nPlease check that you have set the OPENROUTER_API_KEY environment variable with a valid API key."
                         elif request.provider == "openai":
                             try:
-                                # Create new api_kwargs with the simplified prompt
                                 fallback_api_kwargs = model.convert_inputs_to_api_kwargs(
                                     input=simplified_prompt,
                                     model_kwargs=model_kwargs,
                                     model_type=ModelType.LLM
                                 )
 
-                                # Get the response using the simplified prompt
-                                logger.info("Making fallback Openai API call")
-                                fallback_response = await model.acall(api_kwargs=fallback_api_kwargs, model_type=ModelType.LLM)
-
-                                # Handle streaming fallback_response from Openai
-                                async for chunk in fallback_response:
-                                    text = chunk if isinstance(chunk, str) else getattr(chunk, 'text', str(chunk))
-                                    yield text
+                                if openai_tool_executor and "reasoning_effort" in model_kwargs:
+                                    logger.info("Making fallback OpenAI agent call")
+                                    async for chunk in run_agent_loop(model, fallback_api_kwargs, openai_tool_executor):
+                                        yield chunk
+                                else:
+                                    logger.info("Making fallback OpenAI API call")
+                                    fallback_response = await model.acall(api_kwargs=fallback_api_kwargs, model_type=ModelType.LLM)
+                                    async for chunk in fallback_response:
+                                        text = chunk if isinstance(chunk, str) else getattr(chunk, 'text', str(chunk))
+                                        yield text
                             except Exception as e_fallback:
                                 logger.error(f"Error with Openai API fallback: {str(e_fallback)}")
                                 yield f"\nError with Openai API fallback: {str(e_fallback)}\n\nPlease check that you have set the OPENAI_API_KEY environment variable with a valid API key."

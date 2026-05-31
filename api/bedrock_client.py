@@ -1,4 +1,10 @@
-"""AWS Bedrock ModelClient integration."""
+"""AWS Bedrock ModelClient integration with Claude thinking mode.
+
+Supports Anthropic Claude models via Bedrock with extended thinking:
+  - thinking.type = "enabled" with budget_tokens (manual mode)
+  - thinking.type = "adaptive" for Opus 4.6+ / Sonnet 4.5+ (recommended)
+  - Cache control via cache_control parameter in system messages
+"""
 
 import os
 import json
@@ -180,21 +186,24 @@ class BedrockClient(ModelClient):
             # Default to Amazon if format is unexpected
             return "amazon"
 
-    def _format_prompt_for_provider(self, provider: str, prompt: str, messages=None) -> Dict[str, Any]:
+    def _format_prompt_for_provider(self, provider: str, prompt: str, messages=None,
+                                     api_kwargs: Dict = None) -> Dict[str, Any]:
         """Format the prompt according to the provider's requirements.
-        
+
         Args:
             provider: The provider name, e.g., "anthropic"
             prompt: The prompt text
             messages: Optional list of messages for chat models
-            
+            api_kwargs: Full api_kwargs dict for additional params (thinking, max_tokens, etc.)
+
         Returns:
             A dictionary with the formatted prompt
         """
+        api_kwargs = api_kwargs or {}
+
         if provider == "anthropic":
             # Format for Claude models
             if messages:
-                # Format as a conversation
                 formatted_messages = []
                 for msg in messages:
                     role = "user" if msg.get("role") == "user" else "assistant"
@@ -202,20 +211,39 @@ class BedrockClient(ModelClient):
                         "role": role,
                         "content": [{"type": "text", "text": msg.get("content", "")}]
                     })
-                return {
+                body = {
                     "anthropic_version": "bedrock-2023-05-31",
                     "messages": formatted_messages,
-                    "max_tokens": 4096
+                    "max_tokens": api_kwargs.get("max_tokens", 4096)
                 }
             else:
-                # Format as a single prompt
-                return {
+                body = {
                     "anthropic_version": "bedrock-2023-05-31",
                     "messages": [
                         {"role": "user", "content": [{"type": "text", "text": prompt}]}
                     ],
-                    "max_tokens": 4096
+                    "max_tokens": api_kwargs.get("max_tokens", 4096)
                 }
+
+            # Claude extended thinking support
+            thinking_config = api_kwargs.get("thinking")
+            if thinking_config:
+                if thinking_config == "adaptive":
+                    body["thinking"] = {"type": "adaptive"}
+                elif isinstance(thinking_config, dict):
+                    body["thinking"] = thinking_config
+
+            # Cache control: add ephemeral cache breakpoint to system message if present
+            if api_kwargs.get("cache_control"):
+                # Find system message and add cache_control
+                for msg in body.get("messages", []):
+                    if msg["role"] == "user" and isinstance(msg.get("content"), list):
+                        for block in msg["content"]:
+                            if block.get("type") == "text":
+                                block["cache_control"] = {"type": "ephemeral"}
+                                break
+
+            return body
         elif provider == "amazon":
             # Format for Amazon Titan models
             return {
@@ -320,7 +348,7 @@ class BedrockClient(ModelClient):
             messages = api_kwargs.get("messages")
             
             # Format the prompt according to the provider
-            request_body = self._format_prompt_for_provider(provider, prompt, messages)
+            request_body = self._format_prompt_for_provider(provider, prompt, messages, api_kwargs)
             
             # Add model parameters if provided
             if "temperature" in api_kwargs:

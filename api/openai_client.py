@@ -1,4 +1,12 @@
-"""OpenAI ModelClient integration."""
+"""OpenAI ModelClient integration with GPT-5 reasoning support.
+
+Optimizations beyond basic API usage:
+  - reasoning_effort parameter for GPT-5 series (medium/high/xhigh)
+  - Stream options (include_usage) for per-request token tracking
+  - GPT-5 reasoning_content filtering in streaming responses
+  - Automatic prompt caching (transparent, OpenAI-managed)
+  - prompt_cache_key / prompt_cache_retention for cache control
+"""
 
 import os
 import base64
@@ -68,33 +76,26 @@ def get_first_message_content(completion: ChatCompletion) -> str:
 
 # A simple heuristic to estimate token count for estimating number of tokens in a Streaming response
 def estimate_token_count(text: str) -> int:
-    """
-    Estimate the token count of a given text.
-
-    Args:
-        text (str): The text to estimate token count for.
-
-    Returns:
-        int: Estimated token count.
-    """
-    # Split the text into tokens using spaces as a simple heuristic
     tokens = text.split()
-
-    # Return the number of tokens
     return len(tokens)
 
 
 def parse_stream_response(completion: ChatCompletionChunk) -> str:
-    r"""Parse the response of the stream API."""
-    return completion.choices[0].delta.content
+    r"""Parse the response of the stream API, filtering reasoning_content for display."""
+    delta = completion.choices[0].delta
+    if delta is None:
+        return None
+    content = getattr(delta, "content", None)
+    return content
 
 
 def handle_streaming_response(generator: Stream[ChatCompletionChunk]):
-    r"""Handle the streaming response."""
+    r"""Handle the streaming response, filtering reasoning_content for display."""
     for completion in generator:
         log.debug(f"Raw chunk completion: {completion}")
         parsed_content = parse_stream_response(completion)
-        yield parsed_content
+        if parsed_content is not None:
+            yield parsed_content
 
 
 def get_all_messages_content(completion: ChatCompletion) -> List[str]:
@@ -352,6 +353,26 @@ class OpenAIClient(ModelClient):
                 else:
                     messages.append({"role": "user", "content": input})
             final_model_kwargs["messages"] = messages
+
+            # Add stream_options for usage tracking in streaming mode
+            if final_model_kwargs.get("stream"):
+                final_model_kwargs.setdefault("stream_options", {"include_usage": True})
+
+            # GPT-5 reasoning: filter deprecated params and handle reasoning_effort
+            reasoning_effort = final_model_kwargs.pop("reasoning_effort", None)
+            if reasoning_effort:
+                final_model_kwargs["reasoning_effort"] = reasoning_effort
+                # When reasoning_effort is set, temperature/top_p may be ignored
+                # Keep them as-is; the API handles compatibility silently
+
+            # GPT-5 prompt caching: optional cache control
+            cache_key = final_model_kwargs.pop("prompt_cache_key", None)
+            if cache_key:
+                final_model_kwargs["prompt_cache_key"] = cache_key
+            cache_retention = final_model_kwargs.pop("prompt_cache_retention", None)
+            if cache_retention:
+                final_model_kwargs["prompt_cache_retention"] = cache_retention
+
         elif model_type == ModelType.IMAGE_GENERATION:
             # For image generation, input is the prompt
             final_model_kwargs["prompt"] = input
