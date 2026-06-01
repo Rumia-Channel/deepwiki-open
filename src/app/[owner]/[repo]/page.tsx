@@ -1954,7 +1954,7 @@ IMPORTANT:
     <div className="h-screen paper-texture p-4 md:p-8 flex flex-col">
       <style>{wikiStyles}</style>
 
-      <header className="max-w-[90%] xl:max-w-[1400px] mx-auto mb-8 h-fit w-full">
+      <header className="w-full mx-auto mb-6 h-fit">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-center gap-4">
             <Link href="/" className="text-[var(--accent-primary)] hover:text-[var(--highlight)] flex items-center gap-1.5 transition-colors border-b border-[var(--border-color)] hover:border-[var(--accent-primary)] pb-0.5">
@@ -1964,7 +1964,7 @@ IMPORTANT:
         </div>
       </header>
 
-      <main className="flex-1 max-w-[90%] xl:max-w-[1400px] mx-auto overflow-y-auto">
+      <main className="flex-1 w-full mx-auto overflow-y-auto">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center p-8 bg-[var(--card-bg)] rounded-lg shadow-custom card-japanese">
             <div className="relative mb-6">
@@ -2156,7 +2156,7 @@ IMPORTANT:
             {/* Wiki Content */}
             <div id="wiki-content" className="w-full flex-grow p-6 lg:p-8 overflow-y-auto">
               {currentPageId && generatedPages[currentPageId] ? (
-                <div className="max-w-[900px] xl:max-w-[1000px] mx-auto">
+                <div className="w-full mx-auto">
                   <h3 className="text-xl font-bold text-[var(--foreground)] mb-4 break-words font-serif">
                     {generatedPages[currentPageId].title}
                   </h3>
@@ -2207,8 +2207,8 @@ IMPORTANT:
         ) : null}
       </main>
 
-      <footer className="max-w-[90%] xl:max-w-[1400px] mx-auto mt-8 flex flex-col gap-4 w-full">
-        <div className="flex justify-between items-center gap-4 text-center text-[var(--muted)] text-sm h-fit w-full bg-[var(--card-bg)] rounded-lg p-3 shadow-sm border border-[var(--border-color)]">
+      <footer className="w-full mx-auto mt-4">
+        <div className="flex justify-between items-center gap-2 text-center text-[var(--muted)] text-xs w-full bg-[var(--card-bg)] rounded-lg p-2 px-4 shadow-sm border border-[var(--border-color)]">
           <p className="flex-1 font-serif">
             {messages.footer?.copyright || 'DeepWiki - Generate Wiki from GitHub/Gitlab/Bitbucket repositories'}
           </p>
