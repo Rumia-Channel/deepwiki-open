@@ -30,6 +30,18 @@
       "dimensions": 256
     }
   },
+  "embedder_deepseek": {
+    "client_class": "OpenAIClient",
+    "batch_size": 100,
+    "initialize_kwargs": {
+      "api_key": "${DEEPSEEK_API_KEY}",
+      "base_url": "https://api.deepseek.com"
+    },
+    "model_kwargs": {
+      "model": "deepseek-chat",
+      "dimensions": 256
+    }
+  },
   "retriever": {
     "top_k": 20
   },

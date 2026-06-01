@@ -6,7 +6,7 @@ from collections import defaultdict
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
-from typing import List, Optional, Dict, Any, Literal
+from typing import List, Optional, Dict, Any, Literal, Union
 import json
 from datetime import datetime
 from pydantic import BaseModel, Field
@@ -163,12 +163,13 @@ class Model(BaseModel):
 
 class ProviderFeatures(BaseModel):
     thinking: bool = Field(False, description="Supports thinking/reasoning toggle")
+    thinkingLocked: bool = Field(False, description="Thinking mode is mandatory (always on, cannot be turned off)")
     reasoningEffort: List[str] = Field(default_factory=list, description="Available reasoning effort levels")
     thinkingAdaptive: bool = Field(False, description="Supports adaptive thinking (Claude)")
     customModel: bool = Field(False, description="Supports custom model input")
 
 class ProviderDefaults(BaseModel):
-    thinking: Optional[bool] = Field(None, description="Default thinking on/off")
+    thinking: Optional[Union[bool, str]] = Field(None, description="Default thinking on/off (bool or string like 'adaptive')")
     reasoning_effort: Optional[str] = Field(None, description="Default reasoning effort")
     max_tokens: Optional[int] = Field(None, description="Default max output tokens")
     temperature: Optional[float] = Field(None, description="Default temperature")
@@ -274,6 +275,7 @@ async def get_model_config():
             features_raw = provider_config.get("features", {})
             features = ProviderFeatures(
                 thinking=features_raw.get("thinking", False),
+                thinkingLocked=features_raw.get("thinkingLocked", False),
                 reasoningEffort=features_raw.get("reasoningEffort", []),
                 thinkingAdaptive=features_raw.get("thinkingAdaptive", False),
                 customModel=features_raw.get("customModel", False),

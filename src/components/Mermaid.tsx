@@ -23,11 +23,11 @@ mermaid.initialize({
     .node rect, .node circle, .node ellipse, .node polygon, .node path {
       fill: #f8f4e6;
       stroke: #d7c4bb;
-      stroke-width: 1px;
+      stroke-width: 1;
     }
     .edgePath .path {
       stroke: #9b7cb9;
-      stroke-width: 1.5px;
+      stroke-width: 1.5;
     }
     .edgeLabel {
       background-color: transparent;
@@ -42,14 +42,14 @@ mermaid.initialize({
     .cluster rect {
       fill: #f8f4e6;
       stroke: #d7c4bb;
-      stroke-width: 1px;
+      stroke-width: 1;
     }
 
     /* Sequence diagram specific styles */
     .actor {
       fill: #f8f4e6;
       stroke: #d7c4bb;
-      stroke-width: 1px;
+      stroke-width: 1;
     }
     text.actor {
       fill: #333333;
@@ -109,7 +109,7 @@ mermaid.initialize({
     }
     [data-theme="dark"] .messageLine0, [data-theme="dark"] .messageLine1 {
       stroke: #9370db;
-      stroke-width: 1.5px;
+      stroke-width: 1.5;
     }
     [data-theme="dark"] .noteText {
       fill: #f0f0f0;
@@ -129,7 +129,7 @@ mermaid.initialize({
     [data-theme="dark"] .messageText, [data-theme="dark"] text.sequenceText {
       paint-order: stroke;
       stroke: #1a1a1a;
-      stroke-width: 2px;
+      stroke-width: 2;
       stroke-linecap: round;
       stroke-linejoin: round;
     }
@@ -165,11 +165,6 @@ mermaid.initialize({
       filter: brightness(0.95);
     }
 
-    /* Make SVGs fill available width */
-    svg {
-      max-width: 100% !important;
-      height: auto !important;
-    }
   `,
   fontFamily: 'var(--font-geist-sans), var(--font-serif-jp), sans-serif',
   fontSize: 12,
@@ -188,7 +183,9 @@ const FullScreenModal: React.FC<{
   children: React.ReactNode;
 }> = ({ isOpen, onClose, children }) => {
   const modalRef = useRef<HTMLDivElement>(null);
+  const zoomContentRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
+  const [naturalSize, setNaturalSize] = useState({ width: 1000, height: 800 });
 
   // Close on Escape key
   useEffect(() => {
@@ -224,12 +221,59 @@ const FullScreenModal: React.FC<{
     };
   }, [isOpen, onClose]);
 
-  // Reset zoom when modal opens
+  // Capture SVG natural size and clear constraints
   useEffect(() => {
-    if (isOpen) {
-      setZoom(1);
-    }
-  }, [isOpen]);
+    if (!isOpen) return;
+    const timer = requestAnimationFrame(() => {
+      const svg = zoomContentRef.current?.querySelector('svg') as SVGSVGElement | null;
+      if (!svg) return;
+      svg.style.setProperty('max-width', 'none', 'important');
+      svg.style.setProperty('max-height', 'none', 'important');
+      const vb = svg.viewBox.baseVal;
+      if (vb.width && vb.height) {
+        setNaturalSize({ width: vb.width, height: vb.height });
+      } else {
+        const bbox = svg.getBBox();
+        if (bbox && bbox.width && bbox.height) {
+          setNaturalSize({ width: bbox.width, height: bbox.height });
+        }
+      }
+    });
+    return () => cancelAnimationFrame(timer);
+  }, [children, isOpen]);
+
+  // Auto-fit zoom when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+    setZoom(1);
+    const timer = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const container = zoomContentRef.current;
+        if (!container) return;
+        const cw = container.clientWidth;
+        const ch = container.clientHeight;
+        if (!cw || !ch) return;
+
+        const scaleW = cw / naturalSize.width;
+        const scaleH = ch / naturalSize.height;
+        const fitZoom = Math.min(scaleW, scaleH, 4);
+        if (fitZoom > 0 && isFinite(fitZoom) && Math.abs(fitZoom - 1) > 0.05) {
+          setZoom(Math.round(fitZoom * 10) / 10);
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              const c = zoomContentRef.current;
+              if (!c) return;
+              const sw = naturalSize.width * fitZoom;
+              const sh = naturalSize.height * fitZoom;
+              c.scrollLeft = (sw - c.clientWidth) / 2;
+              c.scrollTop = (sh - c.clientHeight) / 2;
+            });
+          });
+        }
+      });
+    });
+    return () => cancelAnimationFrame(timer);
+  }, [isOpen, naturalSize]);
 
   if (!isOpen) return null;
 
@@ -237,7 +281,7 @@ const FullScreenModal: React.FC<{
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75 p-4">
       <div
         ref={modalRef}
-        className="bg-[var(--card-bg)] rounded-lg shadow-custom w-[95vw] max-h-[95vh] overflow-hidden flex flex-col card-japanese"
+        className="bg-[var(--card-bg)] rounded-lg shadow-custom w-[95vw] h-[90vh] overflow-hidden flex flex-col card-japanese"
       >
         {/* Modal header with controls */}
         <div className="flex items-center justify-between p-4 border-b border-[var(--border-color)]">
@@ -257,7 +301,7 @@ const FullScreenModal: React.FC<{
               </button>
               <span className="text-sm text-[var(--muted)]">{Math.round(zoom * 100)}%</span>
               <button
-                onClick={() => setZoom(Math.min(2, zoom + 0.1))}
+                onClick={() => setZoom(Math.min(4, zoom + 0.1))}
                 className="text-[var(--foreground)] hover:bg-[var(--accent-primary)]/10 p-2 rounded-md border border-[var(--border-color)] transition-colors"
                 aria-label="Zoom in"
               >
@@ -292,16 +336,25 @@ const FullScreenModal: React.FC<{
           </div>
         </div>
 
-        {/* Modal content with zoom */}
-        <div className="overflow-auto p-4 flex-1 flex items-center justify-center bg-[var(--background)]/50">
+        {/* Modal content with scale transform and explicit container to preserve scroll */}
+        <div className="overflow-auto p-2 flex-1" ref={zoomContentRef}>
           <div
             style={{
-              transform: `scale(${zoom})`,
-              transformOrigin: 'center center',
-              transition: 'transform 0.3s ease-out'
+              width: naturalSize.width * zoom,
+              height: naturalSize.height * zoom,
+              position: 'relative',
             }}
           >
-            {children}
+            <div
+              style={{
+                transform: `scale(${zoom})`,
+                transformOrigin: 'top left',
+                width: naturalSize.width,
+                height: naturalSize.height,
+              }}
+            >
+              {children}
+            </div>
           </div>
         </div>
       </div>
@@ -328,10 +381,11 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
       const initializePanZoom = async () => {
         const svgElement = containerRef.current?.querySelector("svg");
         if (svgElement) {
-          // Remove any max-width constraints
-          svgElement.style.maxWidth = "none";
-          svgElement.style.width = "100%";
-          svgElement.style.height = "100%";
+          // Remove any max-width/max-height constraints so pan-zoom can size freely
+          svgElement.style.setProperty('max-width', 'none', 'important');
+          svgElement.style.setProperty('max-height', 'none', 'important');
+          svgElement.style.setProperty('width', '100%');
+          svgElement.style.setProperty('height', '100%');
 
           try {
             // Dynamically import svg-pan-zoom only when needed in the browser
@@ -352,10 +406,12 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
         }
       };
 
-      // Wait for the SVG to be rendered
-      setTimeout(() => {
-        void initializePanZoom();
-      }, 100);
+      // Wait for the SVG to be rendered and laid out
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          void initializePanZoom();
+        });
+      });
     }
   }, [svg, zoomingEnabled]);
 
@@ -380,8 +436,18 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
         if (isDarkModeRef.current) {
           processedSvg = processedSvg.replace('<svg ', '<svg data-theme="dark" ');
         }
-        // Remove Mermaid's hardcoded max-width so SVG fills container
-        processedSvg = processedSvg.replace(/\s*max-width:\s*[\d.]+px\s*;?/gi, '');
+        // Mermaid hardcodes width/height in SVG's inline style; strip them
+        // so CSS max-width/max-height constraints can control sizing.
+        // Only target style="..." attributes, not <style> blocks.
+        processedSvg = processedSvg.replace(
+          /style="([^"]*)"/g,
+          (_, styles: string) => {
+            const cleaned = styles.replace(/\s*(?:max-)?(?:width|height)\s*:\s*[\d.]+\s*px\s*!?\s*;?\s*/gi, '');
+            return `style="${cleaned}"`;
+          }
+        );
+        // DEBUG: verify style stripping
+        console.log('[Mermaid] processed style:', processedSvg.match(/style="[^"]*"/)?.[0]);
 
         setSvg(processedSvg);
 
@@ -456,13 +522,17 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
     <>
       <div
         ref={containerRef}
-        className={`w-full max-w-full ${zoomingEnabled ? "min-h-[300px] p-2" : ""}`}
+        className={`w-full max-w-full ${zoomingEnabled ? "h-[60vh] min-h-[20vh] p-2" : ""}`}
       >
         <div
           className={`relative group ${zoomingEnabled ? "h-full rounded-lg border-2 border-black" : ""}`}
         >
           <div
-            className={`flex justify-center overflow-auto text-center my-2 cursor-pointer hover:shadow-md transition-shadow duration-200 rounded-md ${className} ${zoomingEnabled ? "h-full" : ""}`}
+            className={
+              zoomingEnabled
+                ? `h-full ${className}`
+                : `flex justify-center overflow-auto text-center my-2 cursor-pointer hover:shadow-md transition-shadow duration-200 rounded-md ${className}`
+            }
             dangerouslySetInnerHTML={{ __html: svg }}
             onClick={zoomingEnabled ? undefined : handleDiagramClick}
             title={zoomingEnabled ? undefined : "Click to view fullscreen"}

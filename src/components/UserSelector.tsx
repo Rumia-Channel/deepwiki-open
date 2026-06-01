@@ -11,6 +11,7 @@ interface Model {
 
 interface ProviderFeatures {
   thinking: boolean;
+  thinkingLocked: boolean;
   reasoningEffort: string[];
   thinkingAdaptive: boolean;
   customModel: boolean;
@@ -133,6 +134,15 @@ export default function UserSelector({
             setModel(selectedProvider.models[0].id);
           }
         }
+        // Initialize thinking state from provider defaults (only on first load)
+        if (provider) {
+          const currentProvider = data.providers.find((p: Provider) => p.id === provider);
+          if (currentProvider?.features?.thinkingLocked || currentProvider?.defaults?.thinking) {
+            setThinkingEnabled(true);
+            const effort = currentProvider?.defaults?.reasoning_effort;
+            if (effort) setReasoningEffort(effort);
+          }
+        }
       } catch (err) {
         console.error('Failed to fetch model configurations:', err);
         setError('Failed to load model configurations. Using default options.');
@@ -156,6 +166,14 @@ export default function UserSelector({
         const selectedProvider = modelConfig.providers.find((p: Provider) => p.id === newProvider);
         if (selectedProvider && selectedProvider.models.length > 0) {
           setModel(selectedProvider.models[0].id);
+        }
+        // Auto-enable thinking when provider has thinkingLocked or defaults.thinking=true
+        if (selectedProvider?.features?.thinkingLocked || selectedProvider?.defaults?.thinking) {
+          setThinkingEnabled(true);
+          const effort = selectedProvider?.defaults?.reasoning_effort;
+          if (effort) setReasoningEffort(effort);
+        } else {
+          setThinkingEnabled(false);
         }
       }
     }, 10);
@@ -368,26 +386,34 @@ next.config.js
           return (
             <div className="space-y-3 p-3 rounded-md border border-[var(--border-color)]/50 bg-[var(--background)]/30">
               {/* Thinking toggle */}
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-[var(--foreground)]">
-                  {t.form?.thinkingMode || 'Thinking Mode'}
-                </label>
-                <div
-                  className="relative flex items-center cursor-pointer"
-                  onClick={() => {
-                    setThinkingEnabled(!thinkingEnabled);
-                    if (!thinkingEnabled) {
-                      // When enabling, set default effort if none selected
-                      if (!reasoningEffort && features.reasoningEffort.length > 0) {
-                        setReasoningEffort(features.reasoningEffort[features.reasoningEffort.length - 1]);
-                      }
-                    }
-                  }}
-                >
-                  <div className={`w-10 h-5 rounded-full transition-colors ${thinkingEnabled ? 'bg-[var(--accent-primary)]' : 'bg-gray-300 dark:bg-gray-600'}`}></div>
-                  <div className={`absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white transition-transform transform ${thinkingEnabled ? 'translate-x-5' : ''}`}></div>
-                </div>
-              </div>
+              {(() => {
+                const thinkingLocked = features.thinkingLocked === true;
+                return (
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-[var(--foreground)]">
+                      {t.form?.thinkingMode || 'Thinking Mode'}
+                      {thinkingLocked && (
+                        <span className="ml-1 text-xs text-[var(--muted)]">({t.form?.alwaysOn || 'Always On'})</span>
+                      )}
+                    </label>
+                    <div
+                      className={`relative flex items-center ${thinkingLocked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+                      onClick={() => {
+                        if (thinkingLocked) return;
+                        setThinkingEnabled(!thinkingEnabled);
+                        if (!thinkingEnabled) {
+                          if (!reasoningEffort && features.reasoningEffort.length > 0) {
+                            setReasoningEffort(features.reasoningEffort[features.reasoningEffort.length - 1]);
+                          }
+                        }
+                      }}
+                    >
+                      <div className={`w-10 h-5 rounded-full transition-colors ${thinkingEnabled ? 'bg-[var(--accent-primary)]' : 'bg-gray-300 dark:bg-gray-600'}`}></div>
+                      <div className={`absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white transition-transform transform ${thinkingEnabled ? 'translate-x-5' : ''}`}></div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Reasoning effort selector */}
               {thinkingEnabled && features.reasoningEffort.length > 0 && (

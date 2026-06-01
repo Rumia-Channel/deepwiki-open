@@ -80,7 +80,7 @@
       }
     },
     "deepseek": {
-      "features": { "thinking": true, "reasoningEffort": ["high", "max"], "customModel": true },
+      "features": { "thinking": true, "thinkingLocked": true, "reasoningEffort": ["high", "max"], "customModel": true },
       "defaults": { "thinking": true, "reasoning_effort": "max", "max_tokens": 65536 },
       "default_model": "deepseek-v4-flash",
       "models": {

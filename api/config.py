@@ -139,7 +139,7 @@ def load_embedder_config():
     embedder_config = load_json_config("embedder.json")
 
     # Process client classes
-    for key in ["embedder", "embedder_ollama", "embedder_google", "embedder_bedrock"]:
+    for key in ["embedder", "embedder_ollama", "embedder_google", "embedder_bedrock", "embedder_deepseek"]:
         if key in embedder_config and "client_class" in embedder_config[key]:
             class_name = embedder_config[key]["client_class"]
             if class_name in CLIENT_CLASSES:
@@ -161,6 +161,8 @@ def get_embedder_config():
         return configs.get("embedder_google", {})
     elif embedder_type == 'ollama' and 'embedder_ollama' in configs:
         return configs.get("embedder_ollama", {})
+    elif embedder_type == 'deepseek' and 'embedder_deepseek' in configs:
+        return configs.get("embedder_deepseek", {})
     else:
         return configs.get("embedder", {})
 
@@ -222,12 +224,27 @@ def is_bedrock_embedder():
     client_class = embedder_config.get("client_class", "")
     return client_class == "BedrockClient"
 
+def is_deepseek_embedder():
+    """
+    Check if the current embedder configuration uses DeepSeek (OpenAIClient with DeepSeek base URL).
+
+    Returns:
+        bool: True if using DeepSeek embedder, False otherwise
+    """
+    embedder_config = get_embedder_config()
+    if not embedder_config:
+        return False
+
+    initialize_kwargs = embedder_config.get("initialize_kwargs", {})
+    base_url = initialize_kwargs.get("base_url", "")
+    return "deepseek.com" in base_url.lower()
+
 def get_embedder_type():
     """
     Get the current embedder type based on configuration.
     
     Returns:
-        str: 'bedrock', 'ollama', 'google', or 'openai' (default)
+        str: 'bedrock', 'ollama', 'google', 'deepseek', or 'openai' (default)
     """
     if is_bedrock_embedder():
         return 'bedrock'
@@ -235,6 +252,8 @@ def get_embedder_type():
         return 'ollama'
     elif is_google_embedder():
         return 'google'
+    elif is_deepseek_embedder():
+        return 'deepseek'
     else:
         return 'openai'
 
@@ -326,7 +345,7 @@ if generator_config:
 
 # Update embedder configuration
 if embedder_config:
-    for key in ["embedder", "embedder_ollama", "embedder_google", "embedder_bedrock", "retriever", "text_splitter"]:
+    for key in ["embedder", "embedder_ollama", "embedder_google", "embedder_bedrock", "embedder_deepseek", "retriever", "text_splitter"]:
         if key in embedder_config:
             configs[key] = embedder_config[key]
 
