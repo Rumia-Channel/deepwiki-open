@@ -97,11 +97,17 @@ The API runs on `http://localhost:8001`.
 #### Step 3: Start the Frontend
 
 ```bash
-# Install JavaScript dependencies
-yarn install
+# Using pnpm (recommended)
+pnpm install
+pnpm dev
 
-# Start the Next.js dev server
+# Or using yarn
+yarn install
 yarn dev
+
+# Or using npm
+npm install
+npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) and enter any GitHub, GitLab, or BitBucket repository URL.

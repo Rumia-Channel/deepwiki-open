@@ -97,11 +97,17 @@ APIは`http://localhost:8001`で実行されます。
 #### ステップ3: フロントエンドの起動
 
 ```bash
-# JavaScript依存関係をインストール
-yarn install
+# pnpm（推奨）
+pnpm install
+pnpm dev
 
-# Next.js開発サーバーを起動
+# または yarn
+yarn install
 yarn dev
+
+# または npm
+npm install
+npm run dev
 ```
 
 [http://localhost:3000](http://localhost:3000) を開き、GitHub、GitLab、BitbucketのリポジトリURLを入力します。
