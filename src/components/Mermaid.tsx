@@ -380,6 +380,8 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
         if (isDarkModeRef.current) {
           processedSvg = processedSvg.replace('<svg ', '<svg data-theme="dark" ');
         }
+        // Remove Mermaid's hardcoded max-width so SVG fills container
+        processedSvg = processedSvg.replace(/\s*max-width:\s*[\d.]+px\s*;?/gi, '');
 
         setSvg(processedSvg);
 
