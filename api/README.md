@@ -1,16 +1,22 @@
-# 🚀 DeepWiki API
+# DeepWiki API
 
-This is the backend API for DeepWiki, providing smart code analysis and AI-powered documentation generation.
+Backend API for DeepWiki-Open, providing AI-powered code analysis and wiki generation.
 
-## ✨ Features
+## Features
 
-- **Streaming AI Responses**: Real-time responses using Google's Generative AI (Gemini)
-- **Smart Code Analysis**: Automatically analyzes GitHub repositories
-- **RAG Implementation**: Retrieval Augmented Generation for context-aware responses
-- **Local Storage**: All data stored locally - no cloud dependencies
-- **Conversation History**: Maintains context across multiple questions
+- **8 LLM Providers**: Google Gemini, OpenAI, OpenRouter, Ollama (local), AWS Bedrock, Azure AI, DashScope, DeepSeek
+- **4 Embedding Backends**: OpenAI, Google, Ollama, AWS Bedrock
+- **Streaming Chat**: Real-time responses via HTTP SSE (`/chat/completions/stream`) and WebSocket (`/ws/chat`)
+- **Deep Research**: Multi-turn analysis (up to 5 iterations) for complex topics
+- **Agent Loop**: Autonomous tool-calling (search codebase, read files, list repo) for DeepSeek and OpenAI models
+- **RAG Pipeline**: FAISS retrieval + LLM generation with conversation memory
+- **Wiki Cache**: Server-side caching of generated wikis with CRUD API
+- **Comprehensive & Concise Modes**: Full multi-page wiki or single-page summary
+- **10 Output Languages**: Documentation generation in 10 languages
+- **Local Storage**: All data stored locally — repos, embeddings, and wiki cache
+- **Authentication Mode**: Optional auth code to restrict frontend generation
 
-## 🔧 Quick Setup
+## Quick Setup
 
 ### Step 1: Install Dependencies
 
@@ -19,92 +25,46 @@ This is the backend API for DeepWiki, providing smart code analysis and AI-power
 python -m pip install poetry==2.0.1 && poetry install -C api
 ```
 
-### Step 2: Set Up Environment Variables
+### Step 2: Configure Environment Variables
 
 Create a `.env` file in the project root:
 
 ```
-# Required API Keys
-GOOGLE_API_KEY=your_google_api_key        # Required for Google Gemini models
-OPENAI_API_KEY=your_openai_api_key        # Required for embeddings and OpenAI models
+# Required
+GOOGLE_API_KEY=your_google_api_key
+OPENAI_API_KEY=your_openai_api_key
 
-# Optional API Keys
-OPENROUTER_API_KEY=your_openrouter_api_key  # Required only if using OpenRouter models
+# Optional — only needed for specific providers
+OPENROUTER_API_KEY=your_openrouter_api_key
+AWS_ACCESS_KEY_ID=your_aws_access_key
+AWS_SECRET_ACCESS_KEY=your_aws_secret_key
+AWS_REGION=us-east-1
+DEEPSEEK_API_KEY=your_deepseek_api_key
+DASHSCOPE_API_KEY=your_dashscope_api_key
 
-# AWS Bedrock Configuration
-AWS_ACCESS_KEY_ID=your_aws_access_key_id      # Required for AWS Bedrock models
-AWS_SECRET_ACCESS_KEY=your_aws_secret_key     # Required for AWS Bedrock models
-AWS_REGION=us-east-1                          # Optional, defaults to us-east-1
-AWS_ROLE_ARN=your_aws_role_arn                # Optional, for role-based authentication
+# Ollama host (default: http://localhost:11434)
+OLLAMA_HOST=http://localhost:11434
 
-# OpenAI API Configuration
-OPENAI_BASE_URL=https://custom-api-endpoint.com/v1  # Optional, for custom OpenAI API endpoints
+# Embedding backend: openai (default), google, ollama, bedrock
+DEEPWIKI_EMBEDDER_TYPE=openai
 
-# Ollama host
-OLLAMA_HOST=https://your_ollama_host"  # Optional: Add Ollama host if not local. default: http://localhost:11434
+# Authentication mode (optional)
+DEEPWIKI_AUTH_MODE=true
+DEEPWIKI_AUTH_CODE=your_secret_code
 
-# Server Configuration
-PORT=8001  # Optional, defaults to 8001
+# Server
+PORT=8001
 ```
 
-If you're not using Ollama mode, you need to configure an OpenAI API key for embeddings. Other API keys are only required when configuring and using models from the corresponding providers.
+> **Where to get API keys:**
+> - [Google AI Studio](https://makersuite.google.com/app/apikey)
+> - [OpenAI Platform](https://platform.openai.com/api-keys)
+> - [OpenRouter](https://openrouter.ai/keys)
+> - [AWS IAM Console](https://console.aws.amazon.com/iam/)
+> - [DeepSeek Platform](https://platform.deepseek.com/)
+> - [Alibaba DashScope](https://dashscope.console.aliyun.com/)
 
-> 💡 **Where to get these keys:**
-> - Get a Google API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
-> - Get an OpenAI API key from [OpenAI Platform](https://platform.openai.com/api-keys)
-> - Get an OpenRouter API key from [OpenRouter](https://openrouter.ai/keys)
-> - Get AWS credentials from [AWS IAM Console](https://console.aws.amazon.com/iam/)
-
-#### Advanced Environment Configuration
-
-##### Provider-Based Model Selection
-DeepWiki supports multiple LLM providers. The environment variables above are required depending on which providers you want to use:
-
-- **Google Gemini**: Requires `GOOGLE_API_KEY`
-- **OpenAI**: Requires `OPENAI_API_KEY`
-- **OpenRouter**: Requires `OPENROUTER_API_KEY`
-- **AWS Bedrock**: Requires `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
-- **Ollama**: No API key required (runs locally)
-
-##### Custom OpenAI API Endpoints
-The `OPENAI_BASE_URL` variable allows you to specify a custom endpoint for the OpenAI API. This is useful for:
-
-- Enterprise users with private API channels
-- Organizations using self-hosted or custom-deployed LLM services
-- Integration with third-party OpenAI API-compatible services
-
-**Example:** you can use the endpoint which support the OpenAI protocol provided by any organization
-```
-OPENAI_BASE_URL=https://custom-openai-endpoint.com/v1
-```
-
-##### Configuration Files
-DeepWiki now uses JSON configuration files to manage various system components instead of hardcoded values:
-
-1. **`generator.json`**: Configuration for text generation models
-   - Located in `api/config/` by default
-   - Defines available model providers (Google, OpenAI, OpenRouter, AWS Bedrock, Ollama)
-   - Specifies default and available models for each provider
-   - Contains model-specific parameters like temperature and top_p
-
-2. **`embedder.json`**: Configuration for embedding models and text processing
-   - Located in `api/config/` by default
-   - Defines embedding models for vector storage
-   - Contains retriever configuration for RAG
-   - Specifies text splitter settings for document chunking
-
-3. **`repo.json`**: Configuration for repository handling
-   - Located in `api/config/` by default
-   - Contains file filters to exclude certain files and directories
-   - Defines repository size limits and processing rules
-
-You can customize the configuration directory location using the environment variable:
-
-```
-DEEPWIKI_CONFIG_DIR=/path/to/custom/config/dir  # Optional, for custom config file location
-```
-
-This allows you to maintain different configurations for various environments or deployment scenarios without modifying the code.
+If not using Ollama embeddings, you must configure an OpenAI API key for embeddings. Other API keys are only needed when using the corresponding provider.
 
 ### Step 3: Start the API Server
 
@@ -113,37 +73,65 @@ This allows you to maintain different configurations for various environments or
 python -m api.main
 ```
 
-The API will be available at `http://localhost:8001`
+The API will be available at `http://localhost:8001`.
 
-## 🧠 How It Works
+## How It Works
 
 ### 1. Repository Indexing
-When you provide a GitHub repository URL, the API:
-- Clones the repository locally (if not already cloned)
-- Reads all files in the repository
-- Creates embeddings for the files using OpenAI
-- Stores the embeddings in a local database
+
+When a repository URL is provided:
+- Clones the repository locally (or uses cached clone)
+- Reads all files, applying inclusion/exclusion filters from `config/repo.json`
+- Creates embeddings for file contents (text-embedding-3-small by default)
+- Stores embeddings in a local FAISS database (`~/.adalflow/databases/`)
 
 ### 2. Smart Retrieval (RAG)
-When you ask a question:
-- The API finds the most relevant code snippets
-- These snippets are used as context for the AI
-- The AI generates a response based on this context
+
+When a question is asked:
+- The query is embedded and matched against the FAISS index
+- Top-K relevant code snippets are retrieved (`top_k: 20`)
+- Snippets are used as context for the LLM
+- The LLM generates a grounded, context-aware response
 
 ### 3. Real-Time Streaming
-- Responses are streamed in real-time
-- You see the answer as it's being generated
-- This creates a more interactive experience
 
-## 📡 API Endpoints
+Responses are streamed in real-time via:
+- **HTTP SSE**: `POST /chat/completions/stream`
+- **WebSocket**: `ws://localhost:8001/ws/chat`
 
-### GET /
-Returns basic API information and available endpoints.
+The WebSocket endpoint additionally supports **Deep Research** multi-turn analysis.
 
-### POST /chat/completions/stream
-Streams an AI-generated response about a GitHub repository.
+### 4. Wiki Generation
 
-**Request Body:**
+The wiki generation pipeline:
+1. User provides a repository URL and configuration (language, wiki type, provider, model)
+2. Backend clones the repo and creates embeddings
+3. Frontend requests wiki generation via the chat endpoint
+4. LLM generates structured wiki pages with titles, content, file paths, and Mermaid diagrams
+5. Wiki structure and pages are cached as JSON
+
+## API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/` | API information and available endpoints |
+| `GET` | `/health` | Health check |
+| `POST` | `/chat/completions/stream` | HTTP SSE streaming chat |
+| `WebSocket` | `/ws/chat` | WebSocket streaming chat + Deep Research |
+| `GET` | `/models/config` | Available LLM providers and model configurations |
+| `GET` | `/lang/config` | Supported output languages |
+| `POST` | `/export/wiki` | Export wiki as JSON |
+| `GET` | `/local_repo/structure` | Get local repository file structure |
+| `GET` | `/api/wiki_cache` | Get cached wiki by owner/repo/language |
+| `POST` | `/api/wiki_cache` | Save wiki structure and pages to cache |
+| `DELETE` | `/api/wiki_cache` | Delete cached wiki |
+| `GET` | `/api/processed_projects` | List all processed (cached) projects |
+| `GET` | `/auth/status` | Check if authentication mode is enabled |
+| `POST` | `/auth/validate` | Validate authentication code |
+
+### HTTP SSE Chat
+
+**`POST /chat/completions/stream`**
 
 ```json
 {
@@ -154,46 +142,125 @@ Streams an AI-generated response about a GitHub repository.
       "content": "What does this repository do?"
     }
   ],
-  "filePath": "optional/path/to/file.py"  // Optional
+  "provider": "google",
+  "model": "gemini-2.5-flash",
+  "filePath": "optional/path/to/file.py",
+  "token": "optional_access_token",
+  "type": "github"
 }
 ```
 
-**Response:**
-A streaming response with the generated text.
+Response: Server-Sent Events stream with generated text.
 
-## 📝 Example Code
+### WebSocket Chat
+
+**`ws://localhost:8001/ws/chat`**
+
+Send a JSON message with the same structure as the HTTP endpoint. Supports Deep Research when `[DEEP RESEARCH]` is prepended to the user message.
+
+## LLM Providers
+
+Configuration is JSON-driven via `api/config/generator.json`:
+
+| Provider | Default Model | Features | Key Env Var |
+|---|---|---|---|
+| `google` | `gemini-2.5-flash` | Fast, cost-effective | `GOOGLE_API_KEY` |
+| `openai` | `gpt-5.4-mini` | Thinking/reasoning | `OPENAI_API_KEY` |
+| `openrouter` | `openai/gpt-5-nano` | Multi-model proxy | `OPENROUTER_API_KEY` |
+| `ollama` | `qwen3:1.7b` | Local, no API key | None |
+| `bedrock` | `claude-sonnet-4-6` | Adaptive thinking | `AWS_ACCESS_KEY_ID` |
+| `azure` | `gpt-4o` | Enterprise Azure | Azure credentials |
+| `dashscope` | `qwen-plus` | Alibaba Qwen | `DASHSCOPE_API_KEY` |
+| `deepseek` | `deepseek-v4-flash` | Thinking + tool calling | `DEEPSEEK_API_KEY` |
+
+### Custom Model Selection
+
+Users can select from predefined models or enter custom model IDs in the frontend. This is designed for service providers who want to offer model flexibility without code changes.
+
+### Agent Loop (DeepSeek & OpenAI)
+
+DeepSeek V4 and OpenAI GPT-5 models support an autonomous agent loop with three tools:
+
+- `search_codebase` — FAISS semantic search across the repository
+- `read_file` — Read a specific file from the cloned repository
+- `list_repo_files` — List files matching a glob pattern
+
+The agent loop runs up to 15 rounds, accumulating tool calls and responses.
+
+## Embedding Backends
+
+Controlled via `DEEPWIKI_EMBEDDER_TYPE`:
+
+| Backend | Model | Dimensions | Batch Size |
+|---|---|---|---|
+| `openai` (default) | `text-embedding-3-small` | 256 | 500 |
+| `google` | `gemini-embedding-001` | 768 | 100 |
+| `ollama` | `nomic-embed-text` | 768 | Single-doc |
+| `bedrock` | `titan-embed-text-v2` | 256 | 100 |
+
+Configuration in `api/config/embedder.json`.
+
+## Configuration Files
+
+Located in `api/config/` (customizable via `DEEPWIKI_CONFIG_DIR`):
+
+| File | Purpose |
+|---|---|
+| `generator.json` | LLM provider/model definitions, features, defaults |
+| `embedder.json` | Embedding model, retriever (`top_k: 20`), text splitter (`chunk_size: 350`, `chunk_overlap: 100`) |
+| `repo.json` | File exclusion/inclusion filters, repository size limits |
+| `lang.json` | Supported output languages |
+
+Environment variable placeholders (e.g., `${OPENAI_API_KEY}`) in config files are automatically resolved at startup.
+
+## Storage
+
+All data is stored locally:
+
+| Path | Content |
+|---|---|
+| `~/.adalflow/repos/` | Cloned repositories |
+| `~/.adalflow/databases/` | FAISS embeddings and indexes |
+| `~/.adalflow/wikicache/` | Cached wiki structures and pages |
+
+No cloud storage is used — everything runs on your machine.
+
+## Deep Research
+
+Deep Research is a multi-turn analysis mode. When `[DEEP RESEARCH]` is prepended to a user message, the system performs up to 5 iterations of research:
+
+1. **Iteration 1**: Research plan — outlines approach and initial findings
+2. **Iterations 2-4**: Deep dive — each round builds on previous insights
+3. **Iteration 5**: Final conclusion — comprehensive answer synthesizing all findings
+
+Each iteration uses specialized system prompts and accumulates context from previous rounds.
+
+## Authentication Mode
+
+Enable to require an auth code for wiki generation via the frontend:
+
+```
+DEEPWIKI_AUTH_MODE=true
+DEEPWIKI_AUTH_CODE=your_secret_code
+```
+
+Note: This protects the frontend UI and cached wiki deletion, but does not prevent direct API access.
+
+## Example Usage
 
 ```python
 import requests
 
-# API endpoint
+# HTTP SSE streaming
 url = "http://localhost:8001/chat/completions/stream"
-
-# Request data
 payload = {
     "repo_url": "https://github.com/AsyncFuncAI/deepwiki-open",
-    "messages": [
-        {
-            "role": "user",
-            "content": "Explain how React components work"
-        }
-    ]
+    "messages": [{"role": "user", "content": "Explain the architecture"}],
+    "provider": "google"
 }
 
-# Make streaming request
 response = requests.post(url, json=payload, stream=True)
-
-# Process the streaming response
 for chunk in response.iter_content(chunk_size=None):
     if chunk:
         print(chunk.decode('utf-8'), end='', flush=True)
 ```
-
-## 💾 Storage
-
-All data is stored locally on your machine:
-- Cloned repositories: `~/.adalflow/repos/`
-- Embeddings and indexes: `~/.adalflow/databases/`
-- Generated wiki cache: `~/.adalflow/wikicache/`
-
-No cloud storage is used - everything runs on your computer!
