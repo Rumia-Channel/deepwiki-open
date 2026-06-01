@@ -164,6 +164,12 @@ mermaid.initialize({
     .clickable:hover > * {
       filter: brightness(0.95);
     }
+
+    /* Make SVGs fill available width */
+    svg {
+      max-width: 100% !important;
+      height: auto !important;
+    }
   `,
   fontFamily: 'var(--font-geist-sans), var(--font-serif-jp), sans-serif',
   fontSize: 12,
@@ -231,7 +237,7 @@ const FullScreenModal: React.FC<{
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75 p-4">
       <div
         ref={modalRef}
-        className="bg-[var(--card-bg)] rounded-lg shadow-custom max-w-5xl max-h-[90vh] w-full overflow-hidden flex flex-col card-japanese"
+        className="bg-[var(--card-bg)] rounded-lg shadow-custom w-[95vw] max-h-[95vh] overflow-hidden flex flex-col card-japanese"
       >
         {/* Modal header with controls */}
         <div className="flex items-center justify-between p-4 border-b border-[var(--border-color)]">
@@ -287,7 +293,7 @@ const FullScreenModal: React.FC<{
         </div>
 
         {/* Modal content with zoom */}
-        <div className="overflow-auto p-6 flex-1 flex items-center justify-center bg-[var(--background)]/50">
+        <div className="overflow-auto p-4 flex-1 flex items-center justify-center bg-[var(--background)]/50">
           <div
             style={{
               transform: `scale(${zoom})`,
@@ -448,7 +454,7 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
     <>
       <div
         ref={containerRef}
-        className={`w-full max-w-full ${zoomingEnabled ? "h-[600px] p-4" : ""}`}
+        className={`w-full max-w-full ${zoomingEnabled ? "min-h-[300px] p-2" : ""}`}
       >
         <div
           className={`relative group ${zoomingEnabled ? "h-full rounded-lg border-2 border-black" : ""}`}

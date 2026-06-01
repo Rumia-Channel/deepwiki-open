@@ -391,10 +391,10 @@ export default function Home() {
   };
 
   return (
-    <div className="h-screen paper-texture p-4 md:p-8 flex flex-col">
-      <header className="w-full mx-auto mb-6 h-fit">
+    <div className="h-screen paper-texture p-2 md:p-4 flex flex-col">
+      <header className="w-full mx-auto mb-2 h-fit">
         <div
-          className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-[var(--card-bg)] rounded-lg shadow-custom border border-[var(--border-color)] p-4">
+          className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 bg-[var(--card-bg)] rounded-lg shadow-custom border border-[var(--border-color)] p-2 md:p-3">
           <div className="flex items-center">
             <div className="bg-[var(--accent-primary)] p-2 rounded-lg mr-3">
               <FaWikipediaW className="text-2xl text-white" />
@@ -483,7 +483,7 @@ export default function Home() {
 
       <main className="flex-1 w-full mx-auto overflow-y-auto">
         <div
-          className="min-h-full flex flex-col items-center p-8 pt-10 bg-[var(--card-bg)] rounded-lg shadow-custom card-japanese">
+          className="min-h-full flex flex-col items-center p-4 pt-6 bg-[var(--card-bg)] rounded-lg shadow-custom card-japanese">
 
           {/* Conditionally show processed projects or welcome content */}
           {!projectsLoading && projects.length > 0 ? (
@@ -596,7 +596,7 @@ export default function Home() {
         </div>
       </main>
 
-      <footer className="w-full mx-auto mt-4">
+      <footer className="w-full mx-auto mt-2">
         <div
           className="flex flex-col sm:flex-row justify-between items-center gap-2 bg-[var(--card-bg)] rounded-lg p-2 px-4 border border-[var(--border-color)] shadow-custom">
           <p className="text-[var(--muted)] text-xs font-serif">{t('footer.copyright')}</p>

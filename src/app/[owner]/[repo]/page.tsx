@@ -1951,10 +1951,10 @@ IMPORTANT:
   const [isModelSelectionModalOpen, setIsModelSelectionModalOpen] = useState(false);
 
   return (
-    <div className="h-screen paper-texture p-4 md:p-8 flex flex-col">
+    <div className="h-screen paper-texture p-2 md:p-4 flex flex-col">
       <style>{wikiStyles}</style>
 
-      <header className="w-full mx-auto mb-6 h-fit">
+      <header className="w-full mx-auto mb-2 h-fit">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-center gap-4">
             <Link href="/" className="text-[var(--accent-primary)] hover:text-[var(--highlight)] flex items-center gap-1.5 transition-colors border-b border-[var(--border-color)] hover:border-[var(--accent-primary)] pb-0.5">
@@ -2207,7 +2207,7 @@ IMPORTANT:
         ) : null}
       </main>
 
-      <footer className="w-full mx-auto mt-4">
+      <footer className="w-full mx-auto mt-2">
         <div className="flex justify-between items-center gap-2 text-center text-[var(--muted)] text-xs w-full bg-[var(--card-bg)] rounded-lg p-2 px-4 shadow-sm border border-[var(--border-color)]">
           <p className="flex-1 font-serif">
             {messages.footer?.copyright || 'DeepWiki - Generate Wiki from GitHub/Gitlab/Bitbucket repositories'}
