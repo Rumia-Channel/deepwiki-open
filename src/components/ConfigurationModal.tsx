@@ -58,6 +58,12 @@ interface ConfigurationModalProps {
   authCode?: string;
   setAuthCode?: (code: string) => void;
   isAuthLoading?: boolean;
+
+  // Thinking / reasoning
+  thinkingEnabled?: boolean;
+  setThinkingEnabled?: (value: boolean) => void;
+  reasoningEffort?: string;
+  setReasoningEffort?: (value: string) => void;
 }
 
 export default function ConfigurationModal({
@@ -94,7 +100,11 @@ export default function ConfigurationModal({
   authRequired,
   authCode,
   setAuthCode,
-  isAuthLoading
+  isAuthLoading,
+  thinkingEnabled,
+  setThinkingEnabled,
+  reasoningEffort,
+  setReasoningEffort
 }: ConfigurationModalProps) {
   const { messages: t } = useLanguage();
 
@@ -219,6 +229,10 @@ export default function ConfigurationModal({
                 setIsCustomModel={setIsCustomModel}
                 customModel={customModel}
                 setCustomModel={setCustomModel}
+                thinkingEnabled={thinkingEnabled || false}
+                setThinkingEnabled={setThinkingEnabled || (() => {})}
+                reasoningEffort={reasoningEffort || ''}
+                setReasoningEffort={setReasoningEffort || (() => {})}
                 showFileFilters={true}
                 excludedDirs={excludedDirs}
                 setExcludedDirs={setExcludedDirs}

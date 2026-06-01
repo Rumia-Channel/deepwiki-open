@@ -45,8 +45,8 @@ export interface ChatCompletionRequest {
 export const createChatWebSocket = (
   request: ChatCompletionRequest,
   onMessage: (message: string) => void,
-  onError: (error: Event) => void,
-  onClose: () => void
+  onError?: (error: Event) => void,
+  onClose?: () => void
 ): WebSocket => {
   // Create WebSocket connection
   const ws = new WebSocket(getWebSocketUrl());
@@ -65,12 +65,12 @@ export const createChatWebSocket = (
   
   ws.onerror = (error) => {
     console.error('WebSocket error:', error);
-    onError(error);
+    onError?.(error);
   };
   
   ws.onclose = () => {
     console.log('WebSocket connection closed');
-    onClose();
+    onClose?.();
   };
   
   return ws;
