@@ -2207,15 +2207,6 @@ IMPORTANT:
         ) : null}
       </main>
 
-      <footer className="w-full mx-auto mt-2">
-        <div className="flex justify-between items-center gap-2 text-center text-[var(--muted)] text-xs w-full bg-[var(--card-bg)] rounded-lg p-2 px-4 shadow-sm border border-[var(--border-color)]">
-          <p className="flex-1 font-serif">
-            {messages.footer?.copyright || 'DeepWiki - Generate Wiki from GitHub/Gitlab/Bitbucket repositories'}
-          </p>
-          <ThemeToggle />
-        </div>
-      </footer>
-
       {/* Floating Chat Button */}
       {!isLoading && wikiStructure && (
         <button

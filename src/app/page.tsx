@@ -596,30 +596,6 @@ export default function Home() {
         </div>
       </main>
 
-      <footer className="w-full mx-auto mt-2">
-        <div
-          className="flex flex-col sm:flex-row justify-between items-center gap-2 bg-[var(--card-bg)] rounded-lg p-2 px-4 border border-[var(--border-color)] shadow-custom">
-          <p className="text-[var(--muted)] text-xs font-serif">{t('footer.copyright')}</p>
-
-          <div className="flex items-center gap-4">
-            <div className="flex items-center space-x-3">
-              <a href="https://github.com/AsyncFuncAI/deepwiki-open" target="_blank" rel="noopener noreferrer"
-                className="text-[var(--muted)] hover:text-[var(--accent-primary)] transition-colors">
-                <FaGithub className="text-base" />
-              </a>
-              <a href="https://buymeacoffee.com/sheing" target="_blank" rel="noopener noreferrer"
-                className="text-[var(--muted)] hover:text-[var(--accent-primary)] transition-colors">
-                <FaCoffee className="text-base" />
-              </a>
-              <a href="https://x.com/sashimikun_void" target="_blank" rel="noopener noreferrer"
-                className="text-[var(--muted)] hover:text-[var(--accent-primary)] transition-colors">
-                <FaTwitter className="text-base" />
-              </a>
-            </div>
-            <ThemeToggle />
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }
