@@ -85,12 +85,11 @@ SERVER_BASE_URL=http://localhost:8001
 #### ステップ2: バックエンドの起動
 
 ```bash
-# Python依存関係をインストール
-python -m pip install poetry==2.0.1
-poetry install -C api
+# Python依存関係をインストールして仮想環境を同期
+uv sync
 
 # APIサーバーを起動
-python -m api.main
+uv run python -m api.main
 ```
 
 APIは`http://localhost:8001`で実行されます。
@@ -165,7 +164,6 @@ deepwiki-open/
 │   ├── data_pipeline.py          # リポジトリクローン、埋め込みパイプライン
 │   ├── prompts.py                # LLMプロンプトテンプレート
 │   ├── config.py                 # 設定ローダー
-│   ├── pyproject.toml            # Python依存関係（Poetry）
 │   ├── config/                   # JSON設定ファイル
 │   │   ├── generator.json        # LLMプロバイダー/モデル定義
 │   │   ├── embedder.json         # 埋め込みモデル設定
@@ -188,6 +186,8 @@ deepwiki-open/
 │   └── utils/
 │       └── websocketClient.ts    # WebSocketクライアント
 ├── tests/                        # テストスイート（ユニット、統合、API）
+├── pyproject.toml                # Pythonプロジェクト設定（uv）
+├── uv.lock                       # ロックされたPython依存関係
 ├── Dockerfile                    # マルチステージビルド（Node + Python）
 ├── docker-compose.yml            # 本番用Docker Compose
 └── next.config.ts                # APIリライト設定付きNext.js設定

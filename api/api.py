@@ -197,7 +197,7 @@ class ModelConfig(BaseModel):
 class AuthorizationConfig(BaseModel):
     code: str = Field(..., description="Authorization code")
 
-    from api.config import configs, WIKI_AUTH_MODE, WIKI_AUTH_CODE
+from api.config import configs, WIKI_AUTH_MODE, WIKI_AUTH_CODE
 
 @app.middleware("http")
 async def csrf_middleware(request: Request, call_next):

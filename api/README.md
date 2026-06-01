@@ -22,7 +22,7 @@ Backend API for DeepWiki-Open, providing AI-powered code analysis and wiki gener
 
 ```bash
 # From the project root
-python -m pip install poetry==2.0.1 && poetry install -C api
+uv sync
 ```
 
 ### Step 2: Configure Environment Variables
@@ -70,7 +70,7 @@ If not using Ollama embeddings, you must configure an OpenAI API key for embeddi
 
 ```bash
 # From the project root
-python -m api.main
+uv run python -m api.main
 ```
 
 The API will be available at `http://localhost:8001`.

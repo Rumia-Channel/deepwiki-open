@@ -23,15 +23,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN NODE_ENV=production npm run build
 
 FROM python:3.11-slim AS py_deps
-WORKDIR /api
-COPY api/pyproject.toml .
-COPY api/poetry.lock .
-RUN python -m pip install poetry==2.0.1 --no-cache-dir && \
-    poetry config virtualenvs.create true --local && \
-    poetry config virtualenvs.in-project true --local && \
-    poetry config virtualenvs.options.always-copy --local true && \
-    POETRY_MAX_WORKERS=10 poetry install --no-interaction --no-ansi --only main && \
-    poetry cache clear --all .
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+RUN pip install uv --no-cache-dir && \
+    uv sync --frozen --no-dev --no-editable
 
 # Use Python 3.11 as final image
 FROM python:3.11-slim
@@ -72,7 +67,7 @@ RUN if [ -n "${CUSTOM_CERT_DIR}" ]; then \
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy Python dependencies
-COPY --from=py_deps /api/.venv /opt/venv
+COPY --from=py_deps /app/.venv /opt/venv
 COPY api/ ./api/
 
 # Copy Node app

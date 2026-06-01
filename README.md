@@ -85,12 +85,11 @@ SERVER_BASE_URL=http://localhost:8001
 #### Step 2: Start the Backend
 
 ```bash
-# Install Python dependencies
-python -m pip install poetry==2.0.1
-poetry install -C api
+# Install Python dependencies and sync virtual env
+uv sync
 
 # Start the API server
-python -m api.main
+uv run python -m api.main
 ```
 
 The API runs on `http://localhost:8001`.
@@ -165,7 +164,6 @@ deepwiki-open/
 │   ├── data_pipeline.py          # Repo cloning, embedding pipeline
 │   ├── prompts.py                # LLM prompt templates
 │   ├── config.py                 # Configuration loader
-│   ├── pyproject.toml            # Python dependencies (Poetry)
 │   ├── config/                   # JSON configuration
 │   │   ├── generator.json        # LLM provider/model definitions
 │   │   ├── embedder.json         # Embedding model config
@@ -188,6 +186,8 @@ deepwiki-open/
 │   └── utils/
 │       └── websocketClient.ts    # WebSocket client
 ├── tests/                        # Test suite (unit, integration, API)
+├── pyproject.toml                # Python project config (uv)
+├── uv.lock                       # Locked Python dependencies
 ├── Dockerfile                    # Multi-stage build (Node + Python)
 ├── docker-compose.yml            # Production Docker Compose
 └── next.config.ts                # Next.js config with API rewrites
