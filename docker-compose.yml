@@ -20,6 +20,11 @@ services:
     # Resource limits for docker-compose up (not Swarm mode)
     mem_limit: 6g
     mem_reservation: 2g
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 6g
     # Health check configuration
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${PORT:-8001}/health"]

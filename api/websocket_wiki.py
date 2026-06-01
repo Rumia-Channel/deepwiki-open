@@ -1,5 +1,6 @@
 import logging
 import os
+import threading
 from typing import List, Optional, Dict, Any
 from urllib.parse import unquote
 
@@ -17,6 +18,8 @@ from api.config import (
     DEEPSEEK_API_KEY,
     AWS_ACCESS_KEY_ID,
     AWS_SECRET_ACCESS_KEY,
+    WIKI_AUTH_MODE,
+    WIKI_AUTH_CODE,
 )
 from api.data_pipeline import count_tokens, get_file_content
 from api.bedrock_client import BedrockClient
@@ -34,6 +37,11 @@ from api.logging_config import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
+
+# WebSocket connection limiter
+_WS_MAX_CONNECTIONS = int(os.environ.get("DEEPWIKI_WS_MAX_CONNS", "50"))
+_ws_connection_count = 0
+_ws_conn_lock = threading.Lock()
 
 
 # Models for the API
@@ -67,18 +75,32 @@ class ChatCompletionRequest(BaseModel):
     excluded_files: Optional[str] = Field(None, description="Comma-separated list of file patterns to exclude from processing")
     included_dirs: Optional[str] = Field(None, description="Comma-separated list of directories to include exclusively")
     included_files: Optional[str] = Field(None, description="Comma-separated list of file patterns to include exclusively")
+    authorization_code: Optional[str] = Field(None, description="Authorization code when auth mode is enabled")
 
 async def handle_websocket_chat(websocket: WebSocket):
     """
     Handle WebSocket connection for chat completions.
     This replaces the HTTP streaming endpoint with a WebSocket connection.
     """
-    await websocket.accept()
+    global _ws_connection_count
+    with _ws_conn_lock:
+        if _ws_connection_count >= _WS_MAX_CONNECTIONS:
+            await websocket.close(code=1013, reason="Too many connections")
+            return
+        _ws_connection_count += 1
 
     try:
-        # Receive and parse the request data
-        request_data = await websocket.receive_json()
+        await websocket.accept()
+
+        # Receive and parse the request data (capped at 1MB)
+        request_data = await websocket.receive_json(max_size=1024 * 1024)
         request = ChatCompletionRequest(**request_data)
+
+        # Validate auth if enabled
+        if WIKI_AUTH_MODE and (not request.authorization_code or request.authorization_code != WIKI_AUTH_CODE):
+            await websocket.send_text("Error: Authorization required. Please provide a valid authorization code.")
+            await websocket.close()
+            return
 
         # Check if request contains very large input
         input_too_large = False
@@ -1005,3 +1027,6 @@ This file contains...
             await websocket.close()
         except Exception:
             pass
+    finally:
+        with _ws_conn_lock:
+            _ws_connection_count -= 1

@@ -8,6 +8,8 @@ import tiktoken
 import logging
 import base64
 import glob
+import hashlib
+import hmac
 from adalflow.utils import get_adalflow_default_root_path
 from adalflow.core.db import LocalDB
 from api.config import configs, DEFAULT_EXCLUDED_DIRS, DEFAULT_EXCLUDED_FILES
@@ -20,6 +22,76 @@ from api.tools.embedder import get_embedder
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Request timeout for external HTTP calls (seconds)
+_REQUEST_TIMEOUT = int(os.environ.get("DEEPWIKI_REQUEST_TIMEOUT", "15"))
+
+# HMAC key for database integrity verification.
+# In production, this should be set via an environment variable.
+_DB_HMAC_KEY = (os.environ.get("DEEPWIKI_DB_HMAC_KEY") or "deepwiki-default-hmac-key").encode()
+
+def _validate_url_safe(repo_url: str) -> None:
+    """Validate a URL is safe to connect to (prevents SSRF)."""
+    import ipaddress
+    import socket
+    parsed = urlparse(repo_url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Unsupported URL scheme: {parsed.scheme}")
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("Invalid URL: no hostname found")
+    blocked_hosts = {
+        "localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]",
+        "169.254.169.254", "metadata.google.internal",
+    }
+    if hostname.lower() in blocked_hosts:
+        raise ValueError(f"Blocked host: {hostname}")
+    try:
+        addr = ipaddress.ip_address(hostname)
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_multicast or addr.is_reserved or addr.is_unspecified:
+            raise ValueError(f"Blocked IP address: {hostname}")
+    except ValueError:
+        try:
+            resolved = socket.getaddrinfo(hostname, None)
+            for family, _, _, _, sockaddr in resolved:
+                ip = sockaddr[0]
+                addr = ipaddress.ip_address(ip)
+                if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_unspecified:
+                    raise ValueError(f"Host {hostname} resolves to blocked IP: {ip}")
+        except socket.gaierror:
+            raise ValueError(f"Cannot resolve host: {hostname}")
+
+# HMAC key for database integrity verification.
+# In production, this should be set via an environment variable.
+_DB_HMAC_KEY = (os.environ.get("DEEPWIKI_DB_HMAC_KEY") or "deepwiki-default-hmac-key").encode()
+
+def _db_hmac_path(db_file_path: str) -> str:
+    """Return the path for the HMAC signature file alongside a database file."""
+    return db_file_path + ".hmac"
+
+def _verify_db_integrity(db_file_path: str) -> bool:
+    """Verify the HMAC signature of a database file. Returns False if verification fails."""
+    hmac_path = _db_hmac_path(db_file_path)
+    if not os.path.exists(hmac_path):
+        return False
+    try:
+        with open(db_file_path, "rb") as f:
+            content = f.read()
+        with open(hmac_path, "r") as f:
+            expected = f.read().strip()
+        actual = hmac.new(_DB_HMAC_KEY, content, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(actual, expected)
+    except Exception:
+        return False
+
+def _sign_db_file(db_file_path: str) -> None:
+    """Create an HMAC signature file for a database file."""
+    hmac_path = _db_hmac_path(db_file_path)
+    with open(db_file_path, "rb") as f:
+        content = f.read()
+    signature = hmac.new(_DB_HMAC_KEY, content, hashlib.sha256).hexdigest()
+    with open(hmac_path, "w") as f:
+        f.write(signature)
 
 # Maximum token limit for OpenAI embedding models
 MAX_EMBEDDING_TOKENS = 8192
@@ -82,6 +154,12 @@ def download_repo(repo_url: str, local_path: str, repo_type: str = None, access_
     Returns:
         str: The output message from the `git` command.
     """
+    import ipaddress
+    import socket
+
+    # Validate the URL to prevent SSRF
+    _validate_url_safe(repo_url)
+
     try:
         # Check if Git is installed
         logger.info(f"Preparing to clone repository to {local_path}")
@@ -133,7 +211,7 @@ def download_repo(repo_url: str, local_path: str, repo_type: str = None, access_
         logger.info(f"Cloning repository from {repo_url} to {local_path}")
         # We use repo_url in the log to avoid exposing the token in logs
         result = subprocess.run(
-            ["git", "clone", "--depth=1", "--single-branch", "--recurse-submodules", clone_url, local_path],
+            ["git", "clone", "--depth=1", "--single-branch", clone_url, local_path],
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -143,17 +221,21 @@ def download_repo(repo_url: str, local_path: str, repo_type: str = None, access_
         return result.stdout.decode("utf-8")
 
     except subprocess.CalledProcessError as e:
-        error_msg = e.stderr.decode('utf-8')
-        # Sanitize error message to remove any tokens (both raw and URL-encoded)
+        error_msg = e.stderr.decode('utf-8', errors='replace')
+        # Sanitize error message: remove the token-embedded clone URL and raw tokens
         if access_token:
-            # Remove raw token
-            error_msg = error_msg.replace(access_token, "***TOKEN***")
-            # Also remove URL-encoded token to prevent leaking encoded version
-            encoded_token = quote(access_token, safe='')
-            error_msg = error_msg.replace(encoded_token, "***TOKEN***")
+            for sensitive in [access_token, quote(access_token, safe='')]:
+                error_msg = error_msg.replace(sensitive, "***TOKEN***")
+        # Also try to strip any token@host pattern from the error
+        import re
+        error_msg = re.sub(r'https?://[^@\s]+@', 'https://***TOKEN***@', error_msg)
         raise ValueError(f"Error during cloning: {error_msg}")
     except Exception as e:
-        raise ValueError(f"An unexpected error occurred: {str(e)}")
+        error_msg = str(e)
+        if access_token:
+            for sensitive in [access_token, quote(access_token, safe='')]:
+                error_msg = error_msg.replace(sensitive, "***TOKEN***")
+        raise ValueError(f"An unexpected error occurred: {error_msg}")
 
 # Alias for backward compatibility
 download_github_repo = download_repo
@@ -492,6 +574,7 @@ def transform_documents_and_save_to_db(
     db.transform(key="split_and_embed")
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     db.save_state(filepath=db_path)
+    _sign_db_file(db_path)
     return db
 
 def get_github_file_content(repo_url: str, file_path: str, access_token: str = None) -> str:
@@ -543,7 +626,7 @@ def get_github_file_content(repo_url: str, file_path: str, access_token: str = N
             headers["Authorization"] = f"token {access_token}"
         logger.info(f"Fetching file content from GitHub API: {api_url}")
         try:
-            response = requests.get(api_url, headers=headers)
+            response = requests.get(api_url, headers=headers, timeout=_REQUEST_TIMEOUT)
             response.raise_for_status()
         except RequestException as e:
             raise ValueError(f"Error fetching file content: {e}")
@@ -614,7 +697,7 @@ def get_gitlab_file_content(repo_url: str, file_path: str, access_token: str = N
             if access_token:
                 project_headers["PRIVATE-TOKEN"] = access_token
             
-            project_response = requests.get(project_info_url, headers=project_headers)
+            project_response = requests.get(project_info_url, headers=project_headers, timeout=_REQUEST_TIMEOUT)
             if project_response.status_code == 200:
                 project_data = project_response.json()
                 default_branch = project_data.get('default_branch', 'main')
@@ -633,7 +716,7 @@ def get_gitlab_file_content(repo_url: str, file_path: str, access_token: str = N
             headers["PRIVATE-TOKEN"] = access_token
         logger.info(f"Fetching file content from GitLab API: {api_url}")
         try:
-            response = requests.get(api_url, headers=headers)
+            response = requests.get(api_url, headers=headers, timeout=_REQUEST_TIMEOUT)
             response.raise_for_status()
             content = response.text
         except RequestException as e:
@@ -685,7 +768,7 @@ def get_bitbucket_file_content(repo_url: str, file_path: str, access_token: str 
             if access_token:
                 repo_headers["Authorization"] = f"Bearer {access_token}"
             
-            repo_response = requests.get(repo_info_url, headers=repo_headers)
+            repo_response = requests.get(repo_info_url, headers=repo_headers, timeout=_REQUEST_TIMEOUT)
             if repo_response.status_code == 200:
                 repo_data = repo_response.json()
                 default_branch = repo_data.get('mainbranch', {}).get('name', 'main')
@@ -707,7 +790,7 @@ def get_bitbucket_file_content(repo_url: str, file_path: str, access_token: str 
             headers["Authorization"] = f"Bearer {access_token}"
         logger.info(f"Fetching file content from Bitbucket API: {api_url}")
         try:
-            response = requests.get(api_url, headers=headers)
+            response = requests.get(api_url, headers=headers, timeout=_REQUEST_TIMEOUT)
             if response.status_code == 200:
                 content = response.text
             elif response.status_code == 404:
@@ -804,6 +887,16 @@ class DatabaseManager:
         self.repo_url_or_path = None
         self.repo_paths = None
 
+    @staticmethod
+    def _sanitize_path_component(name: str) -> str:
+        """Strip path separators, null bytes, and traversal sequences from a path component."""
+        import re
+        sanitized = name.replace("\x00", "").replace("/", "_").replace("\\", "_")
+        sanitized = re.sub(r"\.\.+", "_", sanitized)
+        sanitized = re.sub(r"[^\w\-.]", "_", sanitized)
+        sanitized = sanitized.strip("._-")
+        return sanitized or "unknown"
+
     def _extract_repo_name_from_url(self, repo_url_or_path: str, repo_type: str) -> str:
         # Extract owner and repo name to create unique identifier
         url_parts = repo_url_or_path.rstrip('/').split('/')
@@ -812,11 +905,11 @@ class DatabaseManager:
             # GitHub URL format: https://github.com/owner/repo
             # GitLab URL format: https://gitlab.com/owner/repo or https://gitlab.com/group/subgroup/repo
             # Bitbucket URL format: https://bitbucket.org/owner/repo
-            owner = url_parts[-2]
-            repo = url_parts[-1].replace(".git", "")
+            owner = self._sanitize_path_component(url_parts[-2])
+            repo = self._sanitize_path_component(url_parts[-1].replace(".git", ""))
             repo_name = f"{owner}_{repo}"
         else:
-            repo_name = url_parts[-1].replace(".git", "")
+            repo_name = self._sanitize_path_component(url_parts[-1].replace(".git", ""))
         return repo_name
 
     def _create_repo(self, repo_url_or_path: str, repo_type: str = None, access_token: str = None) -> None:
@@ -854,10 +947,11 @@ class DatabaseManager:
                     download_repo(repo_url_or_path, save_repo_dir, repo_type, access_token)
                 else:
                     logger.info(f"Repository already exists at {save_repo_dir}. Using existing repository.")
-                    # Ensure submodules are initialized for cached repos
+                    # Initialize submodules safely (no hook execution)
                     try:
                         subprocess.run(
-                            ["git", "-C", save_repo_dir, "submodule", "update", "--init", "--depth=1", "--recursive"],
+                            ["git", "-C", save_repo_dir, "-c", "protocol.file.allow=never",
+                             "submodule", "update", "--init", "--depth=1"],
                             check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                         )
                         logger.info("Submodules initialized successfully")
@@ -923,8 +1017,14 @@ class DatabaseManager:
         if self.repo_paths and os.path.exists(self.repo_paths["save_db_file"]):
             logger.info("Loading existing database...")
             try:
-                self.db = LocalDB.load_state(self.repo_paths["save_db_file"])
-                documents = self.db.get_transformed_data(key="split_and_embed")
+                if not _verify_db_integrity(self.repo_paths["save_db_file"]):
+                    logger.warning(
+                        "Database integrity check failed for %s. Rebuilding...",
+                        self.repo_paths["save_db_file"],
+                    )
+                else:
+                    self.db = LocalDB.load_state(self.repo_paths["save_db_file"])
+                    documents = self.db.get_transformed_data(key="split_and_embed")
                 if documents:
                     lengths = [_embedding_vector_length(doc) for doc in documents]
                     non_empty = sum(1 for n in lengths if n > 0)

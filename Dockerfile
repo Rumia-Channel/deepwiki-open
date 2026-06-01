@@ -46,7 +46,11 @@ RUN apt-get update && apt-get install -y \
     git \
     ca-certificates \
     && mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key -o /tmp/nodesource-key.gpg \
+    && gpg --show-keys --with-fingerprint /tmp/nodesource-key.gpg 2>&1 | grep -q "9FD3 B784 BC1C 6FC3 1A8A  1A86 FC51 3319 1624 779A" || \
+       (echo "WARNING: NodeSource GPG key fingerprint mismatch! Proceeding anyway..." >&2) \
+    && cat /tmp/nodesource-key.gpg | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+    && rm /tmp/nodesource-key.gpg \
     && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
     && apt-get update \
     && apt-get install -y nodejs \
@@ -81,23 +85,28 @@ EXPOSE ${PORT:-8001} 3000
 
 # Create a script to run both backend and frontend
 RUN echo '#!/bin/bash\n\
-# Load environment variables from .env file if it exists\n\
-if [ -f .env ]; then\n\
-  export $(grep -v "^#" .env | xargs -r)\n\
-fi\n\
+set -euo pipefail\n\
 \n\
 # Check for required environment variables\n\
-if [ -z "$OPENAI_API_KEY" ] || [ -z "$GOOGLE_API_KEY" ]; then\n\
+if [ -z "${OPENAI_API_KEY:-}" ] || [ -z "${GOOGLE_API_KEY:-}" ]; then\n\
   echo "Warning: OPENAI_API_KEY and/or GOOGLE_API_KEY environment variables are not set."\n\
   echo "These are required for DeepWiki to function properly."\n\
   echo "You can provide them via a mounted .env file or as environment variables when running the container."\n\
 fi\n\
 \n\
 # Start the API server in the background with the configured port\n\
-python -m api.main --port ${PORT:-8001} &\n\
+python -m api.main &\n\
 PORT=3000 HOSTNAME=0.0.0.0 node server.js &\n\
 wait -n\n\
 exit $?' > /app/start.sh && chmod +x /app/start.sh
+
+# Create non-root user and fix ownership
+RUN useradd -m -u 1000 -s /bin/bash appuser && \
+    mkdir -p /app/api/logs && \
+    chown -R appuser:appuser /app /opt/venv && \
+    chown appuser:appuser /root/.adalflow 2>/dev/null || true
+
+USER appuser
 
 # Set environment variables
 ENV PORT=8001

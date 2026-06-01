@@ -1,5 +1,8 @@
 import os
 import logging
+import time
+import threading
+from collections import defaultdict
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -27,10 +30,42 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allows all origins
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
+
+# Simple in-memory rate limiter
+_RATE_LIMIT_WINDOW = int(os.environ.get("DEEPWIKI_RATE_LIMIT_WINDOW", "60"))
+_RATE_LIMIT_MAX = int(os.environ.get("DEEPWIKI_RATE_LIMIT_MAX", "30"))
+_rate_limit_store: Dict[str, List[float]] = defaultdict(list)
+_rate_limit_lock = threading.Lock()
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    # Check request body size for POST/PUT/PATCH
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > 5 * 1024 * 1024:  # 5MB limit
+        return JSONResponse(
+            status_code=413,
+            content={"error": "Request body too large. Maximum size is 5MB."},
+        )
+
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    with _rate_limit_lock:
+        timestamps = _rate_limit_store[client_ip]
+        timestamps = [t for t in timestamps if now - t < _RATE_LIMIT_WINDOW]
+        if len(timestamps) >= _RATE_LIMIT_MAX:
+            _rate_limit_store[client_ip] = timestamps
+            return JSONResponse(
+                status_code=429,
+                content={"error": "Rate limit exceeded. Please wait before making more requests."},
+            )
+        timestamps.append(now)
+        _rate_limit_store[client_ip] = timestamps
+    response = await call_next(request)
+    return response
 
 # Helper function to get adalflow root path
 def get_adalflow_default_root_path():
@@ -107,6 +142,8 @@ class WikiCacheRequest(BaseModel):
     wiki_structure: WikiStructureModel
     generated_pages: Dict[str, WikiPage]
     provider: str
+    model: Optional[str] = None
+    authorization_code: Optional[str] = None
     model: str
 
 class WikiExportRequest(BaseModel):
@@ -160,7 +197,25 @@ class ModelConfig(BaseModel):
 class AuthorizationConfig(BaseModel):
     code: str = Field(..., description="Authorization code")
 
-from api.config import configs, WIKI_AUTH_MODE, WIKI_AUTH_CODE
+    from api.config import configs, WIKI_AUTH_MODE, WIKI_AUTH_CODE
+
+@app.middleware("http")
+async def csrf_middleware(request: Request, call_next):
+    """Reject cross-origin state-changing requests when Origin header is present and mismatched."""
+    if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+        origin = request.headers.get("origin")
+        host = request.headers.get("host", "")
+        if origin and host and not origin.endswith("://" + host.split(",")[0].strip()):
+            # Allow if origin ends with host (same-origin or subdomain)
+            from urllib.parse import urlparse
+            parsed_origin = urlparse(origin)
+            origin_host = parsed_origin.netloc or ""
+            if origin_host and origin_host != host.split(",")[0].strip():
+                return JSONResponse(
+                    status_code=403,
+                    content={"error": "Cross-origin state-changing requests are not allowed."},
+                )
+    return await call_next(request)
 
 @app.get("/lang/config")
 async def get_lang_config():
@@ -174,11 +229,23 @@ async def get_auth_status():
     return {"auth_required": WIKI_AUTH_MODE}
 
 @app.post("/auth/validate")
-async def validate_auth_code(request: AuthorizationConfig):
+async def validate_auth_code(request: AuthorizationConfig, req: Request):
     """
-    Check authorization code.
+    Check authorization code. Includes rate limiting and delay on failed attempts.
     """
-    return {"success": WIKI_AUTH_CODE == request.code}
+    client_ip = req.client.host if req.client else "unknown"
+    key = f"auth_fail_{client_ip}"
+    now = time.time()
+    with _rate_limit_lock:
+        failures = _rate_limit_store.get(key, [])
+        failures = [t for t in failures if now - t < _RATE_LIMIT_WINDOW]
+        if len(failures) >= 5:
+            await asyncio.sleep(2 ** (len(failures) - 4))  # exponential backoff
+        is_valid = WIKI_AUTH_CODE == request.code
+        if not is_valid:
+            failures.append(now)
+        _rate_limit_store[key] = failures
+    return {"success": is_valid}
 
 @app.get("/models/config", response_model=ModelConfig)
 async def get_model_config():
@@ -316,24 +383,33 @@ async def get_local_repo_structure(path: str = Query(None, description="Path to 
             content={"error": "No path provided. Please provide a 'path' query parameter."}
         )
 
-    if not os.path.isdir(path):
+    # Restrict to the adalflow repos directory only
+    allowed_root = os.path.realpath(os.path.join(get_adalflow_default_root_path(), "repos"))
+    resolved_path = os.path.realpath(path)
+    if not resolved_path.startswith(allowed_root + os.sep) and resolved_path != allowed_root:
+        return JSONResponse(
+            status_code=403,
+            content={"error": "Access denied. Path must be within the repository storage directory."}
+        )
+
+    if not os.path.isdir(resolved_path):
         return JSONResponse(
             status_code=404,
             content={"error": f"Directory not found: {path}"}
         )
 
     try:
-        logger.info(f"Processing local repository at: {path}")
+        logger.info(f"Processing local repository at: {resolved_path}")
         file_tree_lines = []
         readme_content = ""
 
-        for root, dirs, files in os.walk(path):
+        for root, dirs, files in os.walk(resolved_path):
             # Exclude hidden dirs/files and virtual envs
             dirs[:] = [d for d in dirs if not d.startswith('.') and d != '__pycache__' and d != 'node_modules' and d != '.venv']
             for file in files:
                 if file.startswith('.') or file == '__init__.py' or file == '.DS_Store':
                     continue
-                rel_dir = os.path.relpath(root, path)
+                rel_dir = os.path.relpath(root, resolved_path)
                 rel_file = os.path.join(rel_dir, file) if rel_dir != '.' else file
                 file_tree_lines.append(rel_file)
                 # Find README.md (case-insensitive)
@@ -351,7 +427,7 @@ async def get_local_repo_structure(path: str = Query(None, description="Path to 
         logger.error(f"Error processing local repository: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"error": f"Error processing local repository: {str(e)}"}
+            content={"error": "Error processing local repository. Please try again."}
         )
 
 def generate_markdown_export(repo_url: str, pages: List[WikiPage]) -> str:
@@ -440,9 +516,22 @@ app.add_websocket_route("/ws/chat", handle_websocket_chat)
 WIKI_CACHE_DIR = os.path.join(get_adalflow_default_root_path(), "wikicache")
 os.makedirs(WIKI_CACHE_DIR, exist_ok=True)
 
+def _sanitize_path_component(name: str) -> str:
+    """Strip path separators, null bytes, and traversal sequences from a path component."""
+    import re
+    sanitized = name.replace("\x00", "").replace("/", "_").replace("\\", "_")
+    sanitized = re.sub(r"\.\.+", "_", sanitized)
+    sanitized = re.sub(r"[^\w\-.]", "_", sanitized)
+    sanitized = sanitized.strip("._-")
+    return sanitized or "unknown"
+
 def get_wiki_cache_path(owner: str, repo: str, repo_type: str, language: str) -> str:
     """Generates the file path for a given wiki cache."""
-    filename = f"deepwiki_cache_{repo_type}_{owner}_{repo}_{language}.json"
+    safe_owner = _sanitize_path_component(owner)
+    safe_repo = _sanitize_path_component(repo)
+    safe_type = _sanitize_path_component(repo_type)
+    safe_lang = _sanitize_path_component(language)
+    filename = f"deepwiki_cache_{safe_type}_{safe_owner}_{safe_repo}_{safe_lang}.json"
     return os.path.join(WIKI_CACHE_DIR, filename)
 
 async def read_wiki_cache(owner: str, repo: str, repo_type: str, language: str) -> Optional[WikiCacheData]:
@@ -498,7 +587,8 @@ async def get_cached_wiki(
     owner: str = Query(..., description="Repository owner"),
     repo: str = Query(..., description="Repository name"),
     repo_type: str = Query(..., description="Repository type (e.g., github, gitlab)"),
-    language: str = Query(..., description="Language of the wiki content")
+    language: str = Query(..., description="Language of the wiki content"),
+    authorization_code: Optional[str] = Query(None, description="Authorization code")
 ):
     """
     Retrieves cached wiki data (structure and generated pages) for a repository.
@@ -507,6 +597,10 @@ async def get_cached_wiki(
     supported_langs = configs["lang_config"]["supported_languages"]
     if not supported_langs.__contains__(language):
         language = configs["lang_config"]["default"]
+
+    if WIKI_AUTH_MODE:
+        if not authorization_code or WIKI_AUTH_CODE != authorization_code:
+            raise HTTPException(status_code=401, detail="Authorization code is invalid")
 
     logger.info(f"Attempting to retrieve wiki cache for {owner}/{repo} ({repo_type}), lang: {language}")
     cached_data = await read_wiki_cache(owner, repo, repo_type, language)
@@ -528,6 +622,10 @@ async def store_wiki_cache(request_data: WikiCacheRequest):
 
     if not supported_langs.__contains__(request_data.language):
         request_data.language = configs["lang_config"]["default"]
+
+    if WIKI_AUTH_MODE:
+        if not request_data.authorization_code or WIKI_AUTH_CODE != request_data.authorization_code:
+            raise HTTPException(status_code=401, detail="Authorization code is invalid")
 
     logger.info(f"Attempting to save wiki cache for {request_data.repo.owner}/{request_data.repo.repo} ({request_data.repo.type}), lang: {request_data.language}")
     success = await save_wiki_cache(request_data)

@@ -20,7 +20,7 @@ watchfiles_logger.setLevel(logging.DEBUG)  # Enable DEBUG to see file paths
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Apply watchfiles monkey patch BEFORE uvicorn import
-is_development = os.environ.get("NODE_ENV") != "production"
+is_development = os.environ.get("NODE_ENV") == "development"
 if is_development:
     import watchfiles
     current_dir = os.path.dirname(os.path.abspath(__file__))

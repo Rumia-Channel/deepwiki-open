@@ -174,14 +174,20 @@ class ToolExecutor:
         if not self._repo_path:
             return "Error: repository path not set."
 
-        full_path = os.path.join(self._repo_path, file_path)
+        repo_root = os.path.realpath(self._repo_path)
+        full_path = os.path.realpath(os.path.join(repo_root, file_path))
+        if not full_path.startswith(repo_root + os.sep):
+            return "Error: path traversal denied."
         if not os.path.exists(full_path):
-            # Try searching for the file in the repo
-            for root, _, files in os.walk(self._repo_path):
+            # Try searching for the file in the repo (name-only match, no path traversal)
+            basename = os.path.basename(file_path)
+            for walk_root, _, files in os.walk(repo_root):
                 for f in files:
-                    if f == os.path.basename(file_path) or file_path in os.path.join(root, f):
-                        full_path = os.path.join(root, f)
-                        break
+                    if f == basename:
+                        candidate = os.path.realpath(os.path.join(walk_root, f))
+                        if candidate.startswith(repo_root + os.sep):
+                            full_path = candidate
+                            break
                 else:
                     continue
                 break

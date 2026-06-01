@@ -16,7 +16,8 @@ from api.dashscope_client import DashscopeClient
 from api.deepseek_client import DeepSeekClient
 from adalflow import GoogleGenAIClient, OllamaClient
 
-# Get API keys from environment variables
+# Get API keys from environment variables.
+# Keys are read from os.environ, which is already the environment — no re-export needed.
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
 GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
 OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
@@ -26,26 +27,6 @@ AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
 AWS_SESSION_TOKEN = os.environ.get('AWS_SESSION_TOKEN')
 AWS_REGION = os.environ.get('AWS_REGION')
 AWS_ROLE_ARN = os.environ.get('AWS_ROLE_ARN')
-
-# Set keys in environment (in case they're needed elsewhere in the code)
-if OPENAI_API_KEY:
-    os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
-if GOOGLE_API_KEY:
-    os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
-if OPENROUTER_API_KEY:
-    os.environ["OPENROUTER_API_KEY"] = OPENROUTER_API_KEY
-if DEEPSEEK_API_KEY:
-    os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
-if AWS_ACCESS_KEY_ID:
-    os.environ["AWS_ACCESS_KEY_ID"] = AWS_ACCESS_KEY_ID
-if AWS_SECRET_ACCESS_KEY:
-    os.environ["AWS_SECRET_ACCESS_KEY"] = AWS_SECRET_ACCESS_KEY
-if AWS_SESSION_TOKEN:
-    os.environ["AWS_SESSION_TOKEN"] = AWS_SESSION_TOKEN
-if AWS_REGION:
-    os.environ["AWS_REGION"] = AWS_REGION
-if AWS_ROLE_ARN:
-    os.environ["AWS_ROLE_ARN"] = AWS_ROLE_ARN
 
 # Wiki authentication settings
 raw_auth_mode = os.environ.get('DEEPWIKI_AUTH_MODE', 'False')
