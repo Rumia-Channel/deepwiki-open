@@ -4,7 +4,7 @@ import threading
 from typing import List, Optional, Dict, Any
 from urllib.parse import unquote
 
-import google.generativeai as genai
+from google import genai as google_genai
 from adalflow.components.model_client.ollama_client import OllamaClient
 from adalflow.core.types import ModelType
 from fastapi import WebSocket, WebSocketDisconnect, HTTPException
@@ -20,6 +20,7 @@ from api.config import (
     AWS_SECRET_ACCESS_KEY,
     WIKI_AUTH_MODE,
     WIKI_AUTH_CODE,
+    GOOGLE_API_KEY,
 )
 from api.data_pipeline import count_tokens, get_file_content
 from api.bedrock_client import BedrockClient
@@ -643,15 +644,8 @@ This file contains...
                 repo_cache_path=request_rag.db_manager.repo_paths.get("save_repo_dir") if request_rag.db_manager.repo_paths else None
             )
         else:
-            # Initialize Google Generative AI model
-            model = genai.GenerativeModel(
-                model_name=model_config["model"],
-                generation_config={
-                    "temperature": model_config["temperature"],
-                    "top_p": model_config["top_p"],
-                    "top_k": model_config["top_k"]
-                }
-            )
+            # Google provider — use new google-genai SDK
+            google_client = google_genai.Client(api_key=GOOGLE_API_KEY)
 
         # Process the response based on the provider
         try:
@@ -801,10 +795,18 @@ This file contains...
                     await websocket.send_text(error_msg)
                     await websocket.close()
             else:
-                # Google Generative AI (default provider)
-                response = model.generate_content(prompt, stream=True)
+                # Google provider — use new google-genai SDK
+                response = google_client.models.generate_content_stream(
+                    model=model_config["model"],
+                    contents=prompt,
+                    config=google_genai.types.GenerateContentConfig(
+                        temperature=model_config.get("temperature", 1.0),
+                        top_p=model_config.get("top_p", 0.8),
+                        top_k=model_config.get("top_k", 20),
+                    ),
+                )
                 for chunk in response:
-                    if hasattr(chunk, 'text'):
+                    if chunk.text:
                         await websocket.send_text(chunk.text)
                 await websocket.close()
 
@@ -990,22 +992,19 @@ This file contains...
                             error_msg = f"\nError with DeepSeek API fallback: {str(e_fallback)}\n\nPlease check that you have set the DEEPSEEK_API_KEY environment variable with a valid API key."
                             await websocket.send_text(error_msg)
                     else:
-                        # Google Generative AI fallback (default provider)
-                        model_config = get_model_config(request.provider, request.model)
-                        fallback_model = genai.GenerativeModel(
-                            model_name=model_config["model_kwargs"]["model"],
-                            generation_config={
-                                "temperature": model_config["model_kwargs"].get("temperature", 0.7),
-                                "top_p": model_config["model_kwargs"].get("top_p", 0.8),
-                                "top_k": model_config["model_kwargs"].get("top_k", 40),
-                            },
-                        )
-
-                        fallback_response = fallback_model.generate_content(
-                            simplified_prompt, stream=True
+                        # Google provider fallback — use new google-genai SDK
+                        fallback_config = get_model_config(request.provider, request.model)["model_kwargs"]
+                        fallback_response = google_client.models.generate_content_stream(
+                            model=fallback_config["model"],
+                            contents=simplified_prompt,
+                            config=google_genai.types.GenerateContentConfig(
+                                temperature=fallback_config.get("temperature", 0.7),
+                                top_p=fallback_config.get("top_p", 0.8),
+                                top_k=fallback_config.get("top_k", 40),
+                            ),
                         )
                         for chunk in fallback_response:
-                            if hasattr(chunk, "text"):
+                            if chunk.text:
                                 await websocket.send_text(chunk.text)
                 except Exception as e2:
                     logger.error(f"Error in fallback streaming response: {str(e2)}")
