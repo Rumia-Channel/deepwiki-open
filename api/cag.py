@@ -122,6 +122,9 @@ class CAGContext:
         if repo_url_or_path not in self._repos or not self._repos[repo_url_or_path]:
             self.clone_repo(repo_url_or_path, repo_type, access_token)
 
+        local_path = self._repos.get(repo_url_or_path)
+        logger.info(f"CAG: building full context for {repo_url_or_path} ...")
+
         # Walk the repo and collect text files
         entries = []
         for root, dirs, files in os.walk(local_path):
