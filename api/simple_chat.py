@@ -1,3 +1,5 @@
+import asyncio
+import json
 import logging
 import os
 from typing import List, Optional
@@ -762,13 +764,6 @@ async def chat_completions_stream(request: ChatCompletionRequest):
 
 # --- Batch page generation endpoint (CAG + SSE streaming) ---
 
-import asyncio
-from fastapi.responses import StreamingResponse
-import json
-
-# Maximum concurrent LLM calls for batch generation
-_BATCH_MAX_CONCURRENT = int(os.environ.get("DEEPWIKI_BATCH_CONCURRENT", "10"))
-
 class BatchPageItem(BaseModel):
     page_id: str = Field(..., description="Unique page identifier")
     prompt_content: str = Field(..., description="The complete prompt content for this page")
@@ -795,7 +790,7 @@ async def chat_batch(request: BatchPageRequest):
     if not request.pages:
         raise HTTPException(status_code=400, detail="No pages provided")
 
-    semaphore = asyncio.Semaphore(_BATCH_MAX_CONCURRENT)
+    semaphore = asyncio.Semaphore(min(len(request.pages), _BATCH_MAX_CONCURRENT))
 
     # Pre-warm CAG context (clone/build once for all pages)
     context_text = ""
