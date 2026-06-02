@@ -359,6 +359,12 @@ if repo_config:
 if lang_config:
     configs["lang_config"] = lang_config
 
+# Log API key availability (without revealing keys)
+for key_name in ["OPENAI_API_KEY", "GOOGLE_API_KEY", "DEEPSEEK_API_KEY",
+                  "OPENROUTER_API_KEY", "AWS_ACCESS_KEY_ID", "AZURE_OPENAI_API_KEY",
+                  "DASHSCOPE_API_KEY"]:
+    status = "SET" if os.environ.get(key_name) else "NOT SET"
+    logger.info(f"API key status: {key_name} = {status}")
 
 def get_model_config(provider="google", model=None):
     """
