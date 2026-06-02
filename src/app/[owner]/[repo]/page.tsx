@@ -1259,6 +1259,25 @@ Remember:
                     }));
                     setPagesInProgress(prev => { const n = new Set(prev); n.delete(data.page_id); return n; });
                   } else if (data.done) {
+                    // Post-process: fill citation URLs with actual file links
+                    setGeneratedPages(prev => {
+                      const page = prev[data.page_id];
+                      if (page?.content) {
+                        const filled = page.content.replace(
+                          /\[([^\]]+\.\w+)(?::(\d+)(?:-(\d+))?)?\]\(\)/g,
+                          (_m: string, file: string, start: string, end: string) => {
+                            let url = generateFileUrl(file);
+                            if (start && end) url += `#L${start}-L${end}`;
+                            else if (start) url += `#L${start}`;
+                            if (start && end) return `[${file}:${start}-${end}](${url})`;
+                            if (start) return `[${file}:${start}](${url})`;
+                            return `[${file}](${url})`;
+                          }
+                        );
+                        return { ...prev, [data.page_id]: { ...page, content: filled } };
+                      }
+                      return prev;
+                    });
                     setPagesInProgress(prev => { const n = new Set(prev); n.delete(data.page_id); return n; });
                   } else if (data.chunk) {
                     setGeneratedPages(prev => {
