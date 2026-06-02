@@ -380,8 +380,18 @@ function sanitizeMermaidChart(chart: string): string {
       // Escape special chars inside bracket labels [...]
       // Mermaid treats \", ', (, ), {, } as special inside labels
       line = line.replace(/\[[^\]]*\]/g, (match) => {
-        return match
-          .replace(/[{}()"']/g, '');
+        return match.replace(/[{}()"']/g, '');
+      });
+
+      // Same for rhombus/diamond node labels {...} (keep {} delimiters)
+      line = line.replace(/\{[^}]*\}/g, (match) => {
+        return match.replace(/[()"']/g, '');
+      });
+
+      // Same for pipe-delimited edge labels |...|
+      line = line.replace(/\|([^|]*)\|/g, (match, content) => {
+        const cleaned = content.replace(/[{}()"']/g, '');
+        return `|${cleaned}|`;
       });
 
       // Escape curly braces inside Mermaid double-quoted strings
