@@ -1092,8 +1092,8 @@ IMPORTANT:
 
         console.log(`Starting generation for ${pages.length} pages with controlled concurrency`);
 
-        // Maximum concurrent requests
-        const MAX_CONCURRENT = 1;
+        // Maximum concurrent requests (5 parallel WebSocket connections for page generation)
+        const MAX_CONCURRENT = 5;
 
         // Create a queue of pages
         const queue = [...pages];
