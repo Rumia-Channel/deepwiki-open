@@ -386,18 +386,18 @@ function sanitizeMermaidChart(chart: string): string {
       // Regex matches one level of nesting: [content] or [content [inner]]
       line = line.replace(/\[(?:[^\[\]]|\[[^\[\]]*\])*\]/g, (match) => {
         // Strip special chars from inside but keep outer brackets
-        const inner = match.slice(1, -1).replace(/[\[\]{}()"'|]/g, '');
-        return `[${inner}]`;
+        const inner = match.slice(1, -1).replace(/[\[\]{}()"'|>]/g, '');
+        return `[${inner.trim()}]`;
       });
 
       // Same for rhombus/diamond node labels {...}
       line = line.replace(/\{[^}]*\}/g, (match) => {
-        return match.replace(/[\[\]()"']/g, '');
+        return `{${match.slice(1, -1).replace(/[\[\]()"'|>]/g, '').trim()}}`;
       });
 
       // Same for pipe-delimited edge labels |...|
       line = line.replace(/\|([^|]*)\|/g, (_m, content) => {
-        return `|${content.replace(/[\[\]{}()"']/g, '')}|`;
+        return `|${content.replace(/[\[\]{}()"'|>]/g, '').trim()}|`;
       });
 
       // Strip activation +/- from sequence diagram arrows (LLMs misuse them)
@@ -434,8 +434,8 @@ function sanitizeMermaidChart(chart: string): string {
 
       // Re-sanitize any newly added brackets
       line = line.replace(/\[(?:[^\[\]]|\[[^\[\]]*\])*\]/g, (match) => {
-        const inner = match.slice(1, -1).replace(/[\[\]{}()"'|]/g, '');
-        return `[${inner}]`;
+        const inner = match.slice(1, -1).replace(/[\[\]{}()"'|>]/g, '');
+        return `[${inner.trim()}]`;
       });
 
       // Escape curly braces inside Mermaid double-quoted strings
