@@ -456,8 +456,10 @@ async def get_repo_structure(request_data: RepoStructureRequest):
         repo_type = request_data.type or "github"
         access_token = request_data.token
 
-        # Clone (cached if already cloned)
-        local_path = cag_context.clone_repo(repo_url, repo_type, access_token)
+        # Clone in thread pool to avoid blocking the event loop
+        local_path = await asyncio.to_thread(
+            cag_context.clone_repo, repo_url, repo_type, access_token
+        )
 
         file_tree_lines = []
         readme_content = ""
