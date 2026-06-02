@@ -371,12 +371,11 @@ function sanitizeMermaidChart(chart: string): string {
       // Replace <br/> and <br> with space (common LLM artifact)
       line = line.replace(/<br\s*\/?>/gi, ' ');
 
-      // Escape special chars inside bracket labels [...] and round labels (...)
-      // Mermaid treats both \" and ' as special — strip all braces and quotes
-      line = line.replace(/(\[[^\]]*\])|(\([^)]*\))/g, (match) => {
+      // Escape special chars inside bracket labels [...]
+      // Mermaid treats \", ', (, ), {, } as special inside labels
+      line = line.replace(/\[[^\]]*\]/g, (match) => {
         return match
-          .replace(/[{}]/g, '')
-          .replace(/["']/g, '');
+          .replace(/[{}()"']/g, '');
       });
 
       // Escape curly braces inside Mermaid double-quoted strings
