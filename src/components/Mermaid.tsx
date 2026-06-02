@@ -386,7 +386,7 @@ function sanitizeMermaidChart(chart: string): string {
       // Regex matches one level of nesting: [content] or [content [inner]]
       line = line.replace(/\[(?:[^\[\]]|\[[^\[\]]*\])*\]/g, (match) => {
         // Strip special chars from inside but keep outer brackets
-        const inner = match.slice(1, -1).replace(/[\[\]{}()"']/g, '');
+        const inner = match.slice(1, -1).replace(/[\[\]{}()"'|]/g, '');
         return `[${inner}]`;
       });
 
