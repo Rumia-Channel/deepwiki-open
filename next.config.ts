@@ -54,6 +54,10 @@ const nextConfig: NextConfig = {
         destination: `${TARGET_SERVER_BASE_URL}/local_repo/structure`,
       },
       {
+        source: '/repo/structure',
+        destination: `${TARGET_SERVER_BASE_URL}/repo/structure`,
+      },
+      {
         source: '/api/auth/status',
         destination: `${TARGET_SERVER_BASE_URL}/auth/status`,
       },

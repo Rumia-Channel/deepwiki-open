@@ -437,6 +437,57 @@ async def get_local_repo_structure(path: str = Query(None, description="Path to 
             content={"error": "Error processing local repository. Please try again."}
         )
 
+class RepoStructureRequest(BaseModel):
+    repo_url: str = Field(..., description="URL of the repository")
+    type: Optional[str] = Field("github", description="Repository type")
+    token: Optional[str] = Field(None, description="Access token for private repos")
+
+@app.post("/repo/structure")
+async def get_repo_structure(request_data: RepoStructureRequest):
+    """Return file tree and README for any repository using git clone.
+
+    Avoids GitHub/GitLab/Bitbucket API rate limits by using git directly.
+    The cloned repo is cached for subsequent CAG page generation.
+    """
+    try:
+        from api.cag import cag_context
+
+        repo_url = request_data.repo_url
+        repo_type = request_data.type or "github"
+        access_token = request_data.token
+
+        # Clone (cached if already cloned)
+        local_path = cag_context.clone_repo(repo_url, repo_type, access_token)
+
+        file_tree_lines = []
+        readme_content = ""
+
+        for root, dirs, files in os.walk(local_path):
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
+            for f in files:
+                if f.startswith('.'):
+                    continue
+                rel_dir = os.path.relpath(root, local_path)
+                rel_file = os.path.join(rel_dir, f) if rel_dir != '.' else f
+                rel_file = rel_file.replace('\\', '/')
+                file_tree_lines.append(rel_file)
+
+                if f.lower() == 'readme.md' and not readme_content:
+                    try:
+                        with open(os.path.join(root, f), 'r', encoding='utf-8') as rf:
+                            readme_content = rf.read()
+                    except Exception:
+                        pass
+
+        return {
+            "file_tree": '\n'.join(sorted(file_tree_lines)),
+            "readme": readme_content,
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting repo structure: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 def generate_markdown_export(repo_url: str, pages: List[WikiPage]) -> str:
     """
     Generate Markdown export of wiki pages.
