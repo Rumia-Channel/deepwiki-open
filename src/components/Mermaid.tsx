@@ -372,16 +372,17 @@ function sanitizeMermaidChart(chart: string): string {
       line = line.replace(/<br\s*\/?>/gi, ' ');
 
       // Escape special chars inside bracket labels [...] and round labels (...)
+      // Replace with safe alternatives (Mermaid doesn't support HTML entities)
       line = line.replace(/(\[[^\]]*\])|(\([^)]*\))/g, (match) => {
         return match
-          .replace(/\{/g, '#123;')
-          .replace(/\}/g, '#125;')
-          .replace(/"/g, '#quot;');
+          .replace(/\{/g, '(')
+          .replace(/\}/g, ')')
+          .replace(/"/g, "'");
       });
 
-      // Escape special chars inside Mermaid double-quoted strings
+      // Escape curly braces inside Mermaid double-quoted strings
       line = line.replace(/"[^"]*"/g, (match) => {
-        return match.replace(/\{/g, '#123;').replace(/\}/g, '#125;');
+        return match.replace(/\{/g, '(').replace(/\}/g, ')');
       });
 
       // Strip activation +/- from sequence diagram arrows (LLMs misuse them)
