@@ -94,8 +94,8 @@ async def handle_websocket_chat(websocket: WebSocket):
     try:
         await websocket.accept()
 
-        # Receive and parse the request data (capped at 1MB)
-        request_data = await websocket.receive_json(max_size=1024 * 1024)
+        # Receive and parse the request data
+        request_data = await websocket.receive_json()
         request = ChatCompletionRequest(**request_data)
 
         # Validate auth if enabled
