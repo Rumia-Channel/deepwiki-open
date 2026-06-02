@@ -11,6 +11,15 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Optional
 
+try:
+    import tiktoken
+    _tiktoken_enc = tiktoken.get_encoding("cl100k_base")
+    def _count_tokens(text: str) -> int:
+        return len(_tiktoken_enc.encode(text))
+except Exception:
+    def _count_tokens(text: str) -> int:
+        return len(text) // 4
+
 from adalflow.utils import get_adalflow_default_root_path
 from api.data_pipeline import download_repo
 
@@ -184,7 +193,7 @@ class CAGContext:
         self._context_file_count[repo_url_or_path] = file_count
         logger.info(
             f"CAG: context built — {file_count} files, "
-            f"{len(context):,} chars (~{len(context)//4} tokens)"
+            f"{len(context):,} chars (~{_count_tokens(context):,} tokens, estimated)"
         )
         return context
 
