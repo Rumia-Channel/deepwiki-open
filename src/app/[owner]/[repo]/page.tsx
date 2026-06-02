@@ -1835,7 +1835,7 @@ Remember:
 
       <main className="flex-1 w-full mx-auto overflow-y-auto">
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center p-8 bg-[var(--card-bg)] rounded-lg shadow-custom card-japanese">
+          <div className="flex flex-col items-center justify-center p-8 min-h-[40vh] bg-[var(--card-bg)] rounded-lg shadow-custom card-japanese">
             <div className="relative mb-6">
               <div className="absolute -inset-4 bg-[var(--accent-primary)]/10 rounded-full blur-md animate-pulse"></div>
               <div className="relative flex items-center justify-center">
