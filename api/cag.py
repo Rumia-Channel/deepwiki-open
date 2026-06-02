@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -107,6 +108,15 @@ class CAGContext:
         if save_repo_dir and os.path.isdir(save_repo_dir) and os.listdir(save_repo_dir):
             logger.info(f"Repo already cloned at {save_repo_dir}")
             self._repos[repo_url_or_path] = save_repo_dir
+            # Init submodules if present (needed for repos with --recursive)
+            try:
+                subprocess.run(
+                    ["git", "-C", save_repo_dir, "-c", "protocol.file.allow=never",
+                     "submodule", "update", "--init", "--recursive", "--depth=1"],
+                    check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                )
+            except Exception:
+                pass
             return save_repo_dir
 
         try:
