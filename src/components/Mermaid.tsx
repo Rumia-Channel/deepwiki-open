@@ -363,6 +363,11 @@ const FullScreenModal: React.FC<{
 };
 
 function sanitizeMermaidChart(chart: string): string {
+  // Pre-pass: convert fullwidth brackets that LLMs copy-paste from Japanese text
+  chart = chart
+    .replace(/【/g, '[').replace(/】/g, ']')
+    .replace(/「/g, '[').replace(/」/g, ']');
+
   return chart
     .split('\n')
     .map(line => {
@@ -408,6 +413,19 @@ function sanitizeMermaidChart(chart: string): string {
       // Comment out standalone activate/deactivate (LLMs misuse them)
       if (/^\s*(?:de)?activate\s+\w+/i.test(line.trim())) {
         line = '%% ' + line.trim();
+      }
+
+      // Remove orphaned unmatched delimiters (LLMs mix bracket + rhombus styles)
+      // e.g., ...key: [u32;8]}] → the trailing ] after } is orphan garbage
+      line = line.replace(/}[\]〕]+/g, '}');
+      line = line.replace(/[\]〕]+{/g, '{');
+
+      // Remove pipe chars not in a paired context (LLMs use | as literal text)
+      // Count | on this line; if odd, remove the last one
+      const pipeCount = (line.match(/\|/g) || []).length;
+      if (pipeCount > 0 && pipeCount % 2 !== 0) {
+        const idx = line.lastIndexOf('|');
+        line = line.substring(0, idx) + '/' + line.substring(idx + 1);
       }
 
       return line;
