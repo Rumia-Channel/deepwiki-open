@@ -509,11 +509,14 @@ def generate_json_export(repo_url: str, pages: List[WikiPage]) -> str:
     return json.dumps(export_data, indent=2)
 
 # Import the simplified chat implementation
-from api.simple_chat import chat_completions_stream
+from api.simple_chat import chat_completions_stream, chat_batch
 from api.websocket_wiki import handle_websocket_chat
 
 # Add the chat_completions_stream endpoint to the main app
 app.add_api_route("/chat/completions/stream", chat_completions_stream, methods=["POST"])
+
+# Add the batch page generation endpoint
+app.add_api_route("/chat/batch", chat_batch, methods=["POST"])
 
 # Add the WebSocket endpoint
 app.add_api_websocket_route("/ws/chat", handle_websocket_chat)
