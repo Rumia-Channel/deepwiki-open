@@ -400,11 +400,6 @@ function sanitizeMermaidChart(chart: string): string {
         return `|${content.replace(/[\[\]{}()"']/g, '')}|`;
       });
 
-      // Escape curly braces inside Mermaid double-quoted strings
-      line = line.replace(/"[^"]*"/g, (match) => {
-        return match.replace(/[{}]/g, '');
-      });
-
       // Strip activation +/- from sequence diagram arrows (LLMs misuse them)
       // Matches: ->>+B, -->>-B, ->>+ B, --->-B, etc.
       line = line.replace(/(-{1,3}(?:>>|>))\s*[+-](\s*)(?=[^\s:])/g, '$1$2');
@@ -420,13 +415,33 @@ function sanitizeMermaidChart(chart: string): string {
       line = line.replace(/}[\]〕]+/g, '}');
       line = line.replace(/[\]〕]+{/g, '{');
 
-      // Remove pipe chars not in a paired context (LLMs use | as literal text)
-      // Count | on this line; if odd, remove the last one
-      const pipeCount = (line.match(/\|/g) || []).length;
-      if (pipeCount > 0 && pipeCount % 2 !== 0) {
-        const idx = line.lastIndexOf('|');
-        line = line.substring(0, idx) + '/' + line.substring(idx + 1);
-      }
+      // Fix unpaired | used as literal separator outside brackets
+      // After pipe regex handled paired |...|, remaining | are errors
+      // Strategy: extract valid |...| patterns, strip remaining |, restore
+      const validPipes: string[] = [];
+      line = line.replace(/\|([^|]*)\|/g, (m) => {
+        validPipes.push(m);
+        return `\x00P${validPipes.length - 1}\x00`;
+      });
+      line = line.replace(/\|/g, '');
+      validPipes.forEach((p, i) => {
+        line = line.replace(`\x00P${i}\x00`, p);
+      });
+
+      // Wrap bare text after arrows if it has spaces/special chars but no node syntax
+      // e.g., X --> text with spaces → X --> [text with spaces]
+      line = line.replace(/^(.*-->\s*)([^()\[\]{}\"\|\n]*?\s+[^()\[\]{}\"\|\n]*?)$/, '$1[$2]');
+
+      // Re-sanitize any newly added brackets
+      line = line.replace(/\[(?:[^\[\]]|\[[^\[\]]*\])*\]/g, (match) => {
+        const inner = match.slice(1, -1).replace(/[\[\]{}()"'|]/g, '');
+        return `[${inner}]`;
+      });
+
+      // Escape curly braces inside Mermaid double-quoted strings
+      line = line.replace(/"[^"]*"/g, (match) => {
+        return match.replace(/[{}]/g, '');
+      });
 
       return line;
     })
