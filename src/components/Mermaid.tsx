@@ -362,6 +362,31 @@ const FullScreenModal: React.FC<{
   );
 };
 
+function sanitizeMermaidChart(chart: string): string {
+  return chart
+    .split('\n')
+    .map(line => {
+      if (!line.trim() || line.trim().startsWith('%%')) return line;
+
+      // Replace <br/> and <br> with space (common LLM artifact)
+      line = line.replace(/<br\s*\/?>/gi, ' ');
+
+      // Escape curly braces inside bracket labels [...] and quoted labels "..."
+      line = line.replace(/(\[[^\]]*\])|("[^"]*")/g, (match) => {
+        return match.replace(/\{/g, '#123;').replace(/\}/g, '#125;');
+      });
+
+      // Escape curly braces inside round labels (...) (flowchart nodes)
+      line = line.replace(/(\([^)]*\))/g, (match) => {
+        return match.replace(/\{/g, '#123;').replace(/\}/g, '#125;');
+      });
+
+      return line;
+    })
+    .join('\n')
+    .trim();
+}
+
 const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled = false }) => {
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
@@ -427,8 +452,11 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
         setError(null);
         setSvg('');
 
-        // Render the chart directly without preprocessing
-        const { svg: renderedSvg } = await mermaid.render(idRef.current, chart);
+        // Sanitize chart content: fix common LLM-generated Mermaid syntax issues
+        const sanChart = sanitizeMermaidChart(chart);
+
+        // Render the chart
+        const { svg: renderedSvg } = await mermaid.render(idRef.current, sanChart);
 
         if (!isMounted) return;
 
@@ -446,8 +474,6 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
             return `style="${cleaned}"`;
           }
         );
-        // DEBUG: verify style stripping
-        console.log('[Mermaid] processed style:', processedSvg.match(/style="[^"]*"/)?.[0]);
 
         setSvg(processedSvg);
 
