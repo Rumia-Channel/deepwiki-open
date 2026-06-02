@@ -7,6 +7,7 @@ DeepSeek's KV cache auto-caches the shared file prefix across pages.
 import logging
 import os
 import re
+import shutil
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -77,13 +78,22 @@ class CAGContext:
         repo_url_or_path: str,
         repo_type: str = "github",
         access_token: Optional[str] = None,
+        force: bool = False,
     ) -> str:
-        """Clone/download a repo, invalidating any cached context."""
+        """Clone/download a repo, invalidating any cached context.
+
+        Set force=True to delete existing clone and re-download.
+        """
         save_repo_dir = _get_repo_local_path(repo_url_or_path, repo_type)
 
         # Invalidate context cache so next build_full_context reads fresh files
         self._context_cache.pop(repo_url_or_path, None)
         self._context_file_count.pop(repo_url_or_path, None)
+
+        if force and save_repo_dir and os.path.isdir(save_repo_dir):
+            logger.info(f"Force re-clone: removing {save_repo_dir}")
+            shutil.rmtree(save_repo_dir, ignore_errors=True)
+            self._repos.pop(repo_url_or_path, None)
 
         if save_repo_dir and os.path.isdir(save_repo_dir) and os.listdir(save_repo_dir):
             logger.info(f"Repo already cloned at {save_repo_dir}")
@@ -105,22 +115,22 @@ class CAGContext:
         repo_url_or_path: str,
         repo_type: str = "github",
         access_token: Optional[str] = None,
+        force_reclone: bool = False,
     ) -> str:
         """Get the cached CAG context block, cloning the repo if needed.
 
-        Returns a shared prefix string that DeepSeek will KV-cache across
-        all page-generation requests.
+        Set force_reclone=True to delete existing clone and re-download before building.
         """
-        if repo_url_or_path in self._context_cache:
+        if repo_url_or_path in self._context_cache and not force_reclone:
             logger.info(
                 f"CAG context cache HIT: {repo_url_or_path} "
                 f"({self._context_file_count.get(repo_url_or_path, 0)} files)"
             )
             return self._context_cache[repo_url_or_path]
 
-        # Ensure repo is cloned
-        if repo_url_or_path not in self._repos or not self._repos[repo_url_or_path]:
-            self.clone_repo(repo_url_or_path, repo_type, access_token)
+        # Ensure repo is cloned (force re-clone if requested)
+        if force_reclone or repo_url_or_path not in self._repos or not self._repos[repo_url_or_path]:
+            self.clone_repo(repo_url_or_path, repo_type, access_token, force=force_reclone)
 
         local_path = self._repos.get(repo_url_or_path)
         logger.info(f"CAG: building full context for {repo_url_or_path} ...")

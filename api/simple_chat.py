@@ -76,6 +76,7 @@ class ChatCompletionRequest(BaseModel):
 
     language: Optional[str] = Field("en", description="Language for content generation (e.g., 'en', 'ja', 'zh', 'es', 'kr', 'vi')")
     relevant_files: Optional[List[str]] = Field(None, description="List of relevant file paths from the wiki structure to include as CAG context")
+    force_reclone: Optional[bool] = Field(False, description="Force re-clone of the repository before generating")
     excluded_dirs: Optional[str] = Field(None, description="Comma-separated list of directories to exclude from processing")
     excluded_files: Optional[str] = Field(None, description="Comma-separated list of file patterns to exclude from processing")
     included_dirs: Optional[str] = Field(None, description="Comma-separated list of directories to include exclusively")
@@ -161,7 +162,8 @@ async def chat_completions_stream(request: ChatCompletionRequest):
         if not input_too_large:
             try:
                 context_text = cag_context.get_context_block(
-                    request.repo_url, request.type, request.token
+                    request.repo_url, request.type, request.token,
+                    force_reclone=request.force_reclone or False
                 )
                 if not context_text:
                     logger.warning("CAG: context block is empty")

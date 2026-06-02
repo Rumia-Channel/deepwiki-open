@@ -282,6 +282,9 @@ export default function RepoWikiPage() {
   // Create a flag to ensure the effect only runs once
   const effectRan = React.useRef(false);
 
+  // Flag to force re-clone repo when regenerating
+  const forceRecloneRef = useRef(false);
+
   // State for Ask modal
   const [isAskModalOpen, setIsAskModalOpen] = useState(false);
   const askComponentRef = useRef<{ clearConversation: () => void } | null>(null);
@@ -540,6 +543,7 @@ Remember:
           repo_url: repoUrl,
           type: effectiveRepoInfo.type,
           relevant_files: filePaths,
+          force_reclone: false,  // already propagated via structure request
           messages: [{
             role: 'user',
             content: promptContent
@@ -716,6 +720,7 @@ Remember:
       const requestBody: Record<string, any> = {
         repo_url: repoUrl,
         type: effectiveRepoInfo.type,
+        force_reclone: forceRecloneRef.current,
         messages: [{
           role: 'user',
 content: `Analyze this GitHub repository ${owner}/${repo} and create a wiki structure for it.
@@ -1083,6 +1088,9 @@ IMPORTANT:
 
       setWikiStructure(wikiStructure);
       setCurrentPageId(pages.length > 0 ? pages[0].id : undefined);
+
+      // Reset force reclone flag after structure request consumed it
+      forceRecloneRef.current = false;
 
       // Start generating content for all pages with controlled concurrency
       if (pages.length > 0) {
@@ -1571,6 +1579,7 @@ IMPORTANT:
   // No longer needed as we use the modal directly
 
   const confirmRefresh = useCallback(async (newToken?: string) => {
+    forceRecloneRef.current = true;
     setShowModelOptions(false);
     setLoadingMessage(messages.loading?.clearingCache || 'Clearing server cache...');
     setIsLoading(true); // Show loading indicator immediately
