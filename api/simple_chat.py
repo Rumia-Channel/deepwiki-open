@@ -101,14 +101,6 @@ async def chat_completions_stream(request: ChatCompletionRequest):
                     logger.warning(f"Request exceeds recommended token limit ({tokens} > 7500)")
                     input_too_large = True
 
-        # CAG: Clone repo for direct file context (replaces RAG/embedding)
-        try:
-            cag_context.clone_repo(request.repo_url, request.type, request.token)
-            logger.info(f"Repo cloned for CAG: {request.repo_url}")
-        except Exception as e:
-            logger.error(f"Error cloning repo for CAG: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error cloning repository: {str(e)}")
-
         # Validate request
         if not request.messages or len(request.messages) == 0:
             raise HTTPException(status_code=400, detail="No messages provided")
@@ -168,7 +160,9 @@ async def chat_completions_stream(request: ChatCompletionRequest):
 
         if not input_too_large:
             try:
-                context_text = cag_context.get_context_block(request.repo_url)
+                context_text = cag_context.get_context_block(
+                    request.repo_url, request.type, request.token
+                )
                 if not context_text:
                     logger.warning("CAG: context block is empty")
             except Exception as e:
@@ -241,25 +235,27 @@ async def chat_completions_stream(request: ChatCompletionRequest):
         for user_query, assistant_response in conversation_turns:
             conversation_history += f"<turn>\n<user>{user_query}</user>\n<assistant>{assistant_response}</assistant>\n</turn>\n"
 
-        # Create the prompt with context
-        prompt = f"/no_think {system_prompt}\n\n"
-
-        if conversation_history:
-            prompt += f"<conversation_history>\n{conversation_history}</conversation_history>\n\n"
-
-        # Check if filePath is provided and fetch file content if it exists
-        if file_content:
-            # Add file content to the prompt after conversation history
-            prompt += f"<currentFileContent path=\"{request.filePath}\">\n{file_content}\n</currentFileContent>\n\n"
-
-        # Only include context if it's not empty
+        # Create the prompt with CAG context BEFORE conversation history
+        # (so DeepSeek KV cache shares the system_prompt + context prefix across pages)
         CONTEXT_START = "<START_OF_CONTEXT>"
         CONTEXT_END = "<END_OF_CONTEXT>"
+
+        prompt = f"/no_think {system_prompt}\n\n"
+
+        # CAG context block: placed immediately after system prompt for KV cache sharing
         if context_text.strip():
             prompt += f"{CONTEXT_START}\n{context_text}\n{CONTEXT_END}\n\n"
         else:
             logger.info("No CAG context available")
             prompt += "<note>Generating without file context.</note>\n\n"
+
+        # Conversation history comes AFTER the cached prefix
+        if conversation_history:
+            prompt += f"<conversation_history>\n{conversation_history}</conversation_history>\n\n"
+
+        # Check if filePath is provided and fetch file content if it exists
+        if file_content:
+            prompt += f"<currentFileContent path=\"{request.filePath}\">\n{file_content}\n</currentFileContent>\n\n"
 
         prompt += f"<query>\n{query}\n</query>\n\nAssistant: "
 
@@ -536,12 +532,16 @@ async def chat_completions_stream(request: ChatCompletionRequest):
                         )
                 elif request.provider == "deepseek":
                     try:
-                        logger.info("Starting DeepSeek agent loop")
-                        async for chunk in run_agent_loop(model, api_kwargs, tool_executor):
-                            yield chunk
+                        logger.info("Streaming DeepSeek response (no agent loop)")
+                        from api.deepseek_client import parse_stream_response_for_deepseek
+                        response = await model.acall(api_kwargs=api_kwargs, model_type=ModelType.LLM)
+                        async for chunk in response:
+                            text = parse_stream_response_for_deepseek(chunk)
+                            if text:
+                                yield text
                     except Exception as e_deepseek:
-                        logger.error(f"Error with DeepSeek agent: {str(e_deepseek)}")
-                        yield f"\nError with DeepSeek agent: {str(e_deepseek)}\n\nPlease check that you have set the DEEPSEEK_API_KEY environment variable with a valid API key."
+                        logger.error(f"Error with DeepSeek API: {str(e_deepseek)}")
+                        yield f"\nError with DeepSeek API: {str(e_deepseek)}\n\nPlease check that you have set the DEEPSEEK_API_KEY environment variable with a valid API key."
                 else:
                     # Google provider — use new google-genai SDK
                     response = google_client.models.generate_content_stream(

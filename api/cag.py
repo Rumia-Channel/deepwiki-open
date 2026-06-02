@@ -100,8 +100,13 @@ class CAGContext:
             logger.error(f"Failed to clone repo: {e}")
             raise
 
-    def get_context_block(self, repo_url_or_path: str) -> str:
-        """Get the cached CAG context block for a repo, building it if needed.
+    def get_context_block(
+        self,
+        repo_url_or_path: str,
+        repo_type: str = "github",
+        access_token: Optional[str] = None,
+    ) -> str:
+        """Get the cached CAG context block, cloning the repo if needed.
 
         Returns a shared prefix string that DeepSeek will KV-cache across
         all page-generation requests.
@@ -113,10 +118,9 @@ class CAGContext:
             )
             return self._context_cache[repo_url_or_path]
 
-        logger.info(f"CAG: building full context for {repo_url_or_path} ...")
-        local_path = self._repos.get(repo_url_or_path)
-        if not local_path or not os.path.isdir(local_path):
-            raise ValueError(f"Repo not cloned yet: {repo_url_or_path}")
+        # Ensure repo is cloned
+        if repo_url_or_path not in self._repos or not self._repos[repo_url_or_path]:
+            self.clone_repo(repo_url_or_path, repo_type, access_token)
 
         # Walk the repo and collect text files
         entries = []

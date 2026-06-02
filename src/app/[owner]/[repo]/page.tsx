@@ -248,7 +248,6 @@ export default function RepoWikiPage() {
   const [requestInProgress, setRequestInProgress] = useState(false);
   const [currentToken, setCurrentToken] = useState(token); // Track current effective token
   const [effectiveRepoInfo, setEffectiveRepoInfo] = useState(repoInfo); // Track effective repo info with cached data
-  const [embeddingError, setEmbeddingError] = useState(false);
 
   // Model selection state variables
   const [selectedProviderState, setSelectedProviderState] = useState(providerParam);
@@ -429,29 +428,27 @@ export default function RepoWikiPage() {
 
         // Create the prompt content - simplified to avoid message dialogs
  const promptContent =
-`You are an expert technical writer and software architect.
+ `You are an expert technical writer and software architect.
 Your task is to generate a comprehensive and accurate technical wiki page in Markdown format about a specific feature, system, or module within a given software project.
 
 You will be given:
 1. The "[WIKI_PAGE_TOPIC]" for the page you need to create.
-2. A list of "[RELEVANT_SOURCE_FILES]" from the project that you MUST use as the sole basis for the content. You have access to the full content of these files. You MUST use AT LEAST 5 relevant source files for comprehensive coverage - if fewer are provided, search for additional related files in the codebase.
+2. The complete source code of the repository in a \`<repository_context>\` block. You have access to ALL project files. Use the ones most relevant to this page topic. You MUST cite AT LEAST 5 different source files throughout the wiki page to ensure comprehensive coverage.
 
 CRITICAL STARTING INSTRUCTION:
-The very first thing on the page MUST be a \`<details>\` block listing ALL the \`[RELEVANT_SOURCE_FILES]\` you used to generate the content. There MUST be AT LEAST 5 source files listed - if fewer were provided, you MUST find additional related files to include.
+The very first thing on the page MUST be a \`<details>\` block listing ALL the source files you used to generate the content. There MUST be AT LEAST 5 source files listed.
 Format it exactly like this:
 <details>
 <summary>Relevant source files</summary>
 
-Remember, do not provide any acknowledgements, disclaimers, apologies, or any other preface before the \`<details>\` block. JUST START with the \`<details>\` block.
 The following files were used as context for generating this wiki page:
 
 ${filePaths.map(path => `- [${path}](${generateFileUrl(path)})`).join('\n')}
-<!-- Add additional relevant files if fewer than 5 were provided -->
 </details>
 
 Immediately after the \`<details>\` block, the main title of the page should be a H1 Markdown heading: \`# ${page.title}\`.
 
-Based ONLY on the content of the \`[RELEVANT_SOURCE_FILES]\`:
+Based on the content of the repository source files:
 
 1.  **Introduction:** Start with a concise introduction (1-2 paragraphs) explaining the purpose, scope, and high-level overview of "${page.title}" within the context of the overall project. If relevant, and if information is available in the provided files, link to other potential wiki pages using the format \`[Link Text](#page-anchor-or-id)\`.
 
@@ -698,7 +695,6 @@ Remember:
     if (!owner || !repo) {
       setError('Invalid repository information. Owner and repo name are required.');
       setIsLoading(false);
-      setEmbeddingError(false); // Reset embedding error state
       return;
     }
 
@@ -1180,7 +1176,6 @@ IMPORTANT:
     setGeneratedPages({});
     setPagesInProgress(new Set());
     setError(null);
-    setEmbeddingError(false); // Reset embedding error state
 
     try {
       // Set the request in progress flag
@@ -1636,7 +1631,6 @@ IMPORTANT:
     } catch (err) {
       console.warn('Error calling DELETE /api/wiki_cache:', err);
       setIsLoading(false);
-      setEmbeddingError(false); // Reset embedding error state
       // Optionally, inform the user about the cache clear error
       // setError(\`Error clearing cache: ${err instanceof Error ? err.message : String(err)}. Trying to refresh...\`);
       throw err;
@@ -1669,7 +1663,6 @@ IMPORTANT:
     setGeneratedPages({});
     setPagesInProgress(new Set());
     setError(null);
-    setEmbeddingError(false); // Reset embedding error state
     setIsLoading(true); // Set loading state for refresh
     setLoadingMessage(messages.loading?.initializing || 'Initializing wiki generation...');
 
@@ -1847,7 +1840,6 @@ IMPORTANT:
               setGeneratedPages(cachedData.generated_pages);
               setCurrentPageId(cachedStructure.pages.length > 0 ? cachedStructure.pages[0].id : undefined);
               setIsLoading(false);
-              setEmbeddingError(false); 
               setLoadingMessage(undefined);
               cacheLoadedSuccessfully.current = true;
               return; // Exit if cache is successfully loaded
@@ -2026,11 +2018,7 @@ IMPORTANT:
             </div>
             <p className="text-[var(--foreground)] text-sm mb-3">{error}</p>
             <p className="text-[var(--muted)] text-xs">
-              {embeddingError ? (
-                messages.repoPage?.embeddingErrorDefault || 'This error is related to the document embedding system used for analyzing your repository. Please verify your embedding model configuration, API keys, and try again. If the issue persists, consider switching to a different embedding provider in the model settings.'
-              ) : (
-                messages.repoPage?.errorMessageDefault || 'Please check that your repository exists and is public. Valid formats are "owner/repo", "https://github.com/owner/repo", "https://gitlab.com/owner/repo", "https://bitbucket.org/owner/repo", or local folder paths like "C:\\path\\to\\folder" or "/path/to/folder".'
-              )}
+              {messages.repoPage?.errorMessageDefault || 'Please check that your repository exists and is public. Valid formats are "owner/repo", "https://github.com/owner/repo", "https://gitlab.com/owner/repo", "https://bitbucket.org/owner/repo", or local folder paths like "C:\\path\\to\\folder" or "/path/to/folder".'}
             </p>
             <div className="mt-5">
               <Link
