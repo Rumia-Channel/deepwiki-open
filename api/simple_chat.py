@@ -21,7 +21,7 @@ from api.dashscope_client import DashscopeClient
 from api.deepseek_client import DeepSeekClient
 from api.agent_loop import run_agent_loop
 from api.tools.agent_tools import ToolExecutor
-from api.rag import RAG
+from api.cag import cag_context
 from api.prompts import (
     DEEP_RESEARCH_FIRST_ITERATION_PROMPT,
     DEEP_RESEARCH_FINAL_ITERATION_PROMPT,
@@ -75,6 +75,7 @@ class ChatCompletionRequest(BaseModel):
     reasoning_effort: Optional[str] = Field(None, description="Override reasoning effort level")
 
     language: Optional[str] = Field("en", description="Language for content generation (e.g., 'en', 'ja', 'zh', 'es', 'kr', 'vi')")
+    relevant_files: Optional[List[str]] = Field(None, description="List of relevant file paths from the wiki structure to include as CAG context")
     excluded_dirs: Optional[str] = Field(None, description="Comma-separated list of directories to exclude from processing")
     excluded_files: Optional[str] = Field(None, description="Comma-separated list of file patterns to exclude from processing")
     included_dirs: Optional[str] = Field(None, description="Comma-separated list of directories to include exclusively")
@@ -100,45 +101,13 @@ async def chat_completions_stream(request: ChatCompletionRequest):
                     logger.warning(f"Request exceeds recommended token limit ({tokens} > 7500)")
                     input_too_large = True
 
-        # Create a new RAG instance for this request
+        # CAG: Clone repo for direct file context (replaces RAG/embedding)
         try:
-            request_rag = RAG(provider=request.provider, model=request.model)
-
-            # Extract custom file filter parameters if provided
-            excluded_dirs = None
-            excluded_files = None
-            included_dirs = None
-            included_files = None
-
-            if request.excluded_dirs:
-                excluded_dirs = [unquote(dir_path) for dir_path in request.excluded_dirs.split('\n') if dir_path.strip()]
-                logger.info(f"Using custom excluded directories: {excluded_dirs}")
-            if request.excluded_files:
-                excluded_files = [unquote(file_pattern) for file_pattern in request.excluded_files.split('\n') if file_pattern.strip()]
-                logger.info(f"Using custom excluded files: {excluded_files}")
-            if request.included_dirs:
-                included_dirs = [unquote(dir_path) for dir_path in request.included_dirs.split('\n') if dir_path.strip()]
-                logger.info(f"Using custom included directories: {included_dirs}")
-            if request.included_files:
-                included_files = [unquote(file_pattern) for file_pattern in request.included_files.split('\n') if file_pattern.strip()]
-                logger.info(f"Using custom included files: {included_files}")
-
-            request_rag.prepare_retriever(request.repo_url, request.type, request.token, excluded_dirs, excluded_files, included_dirs, included_files)
-            logger.info(f"Retriever prepared for {request.repo_url}")
-        except ValueError as e:
-            if "No valid documents with embeddings found" in str(e):
-                logger.error(f"No valid embeddings found: {str(e)}")
-                raise HTTPException(status_code=500, detail="No valid document embeddings found. This may be due to embedding size inconsistencies or API errors during document processing. Please try again or check your repository content.")
-            else:
-                logger.error(f"ValueError preparing retriever: {str(e)}")
-                raise HTTPException(status_code=500, detail=f"Error preparing retriever: {str(e)}")
+            cag_context.clone_repo(request.repo_url, request.type, request.token)
+            logger.info(f"Repo cloned for CAG: {request.repo_url}")
         except Exception as e:
-            logger.error(f"Error preparing retriever: {str(e)}")
-            # Check for specific embedding-related errors
-            if "All embeddings should be of the same size" in str(e):
-                raise HTTPException(status_code=500, detail="Inconsistent embedding sizes detected. Some documents may have failed to embed properly. Please try again.")
-            else:
-                raise HTTPException(status_code=500, detail=f"Error preparing retriever: {str(e)}")
+            logger.error(f"Error cloning repo for CAG: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error cloning repository: {str(e)}")
 
         # Validate request
         if not request.messages or len(request.messages) == 0:
@@ -148,17 +117,15 @@ async def chat_completions_stream(request: ChatCompletionRequest):
         if last_message.role != "user":
             raise HTTPException(status_code=400, detail="Last message must be from the user")
 
+        # CAG: simple in-memory conversation history
+        conversation_turns = []
         # Process previous messages to build conversation history
         for i in range(0, len(request.messages) - 1, 2):
             if i + 1 < len(request.messages):
                 user_msg = request.messages[i]
                 assistant_msg = request.messages[i + 1]
-
                 if user_msg.role == "user" and assistant_msg.role == "assistant":
-                    request_rag.memory.add_dialog_turn(
-                        user_query=user_msg.content,
-                        assistant_response=assistant_msg.content
-                    )
+                    conversation_turns.append((user_msg.content, assistant_msg.content))
 
         # Check if this is a Deep Research request
         is_deep_research = False
@@ -196,57 +163,20 @@ async def chat_completions_stream(request: ChatCompletionRequest):
         # Get the query from the last message
         query = last_message.content
 
-        # Only retrieve documents if input is not too large
+        # CAG: Build context from relevant files (replaces RAG retrieval)
         context_text = ""
-        retrieved_documents = None
+        cag_file_contents = {}
 
-        if not input_too_large:
+        if not input_too_large and request.relevant_files:
             try:
-                # If filePath exists, modify the query for RAG to focus on the file
-                rag_query = query
-                if request.filePath:
-                    # Use the file path to get relevant context about the file
-                    rag_query = f"Contexts related to {request.filePath}"
-                    logger.info(f"Modified RAG query to focus on file: {request.filePath}")
-
-                # Try to perform RAG retrieval
-                try:
-                    # This will use the actual RAG implementation
-                    retrieved_documents = request_rag(rag_query, language=request.language)
-
-                    if retrieved_documents and retrieved_documents[0].documents:
-                        # Format context for the prompt in a more structured way
-                        documents = retrieved_documents[0].documents
-                        logger.info(f"Retrieved {len(documents)} documents")
-
-                        # Group documents by file path
-                        docs_by_file = {}
-                        for doc in documents:
-                            file_path = doc.meta_data.get('file_path', 'unknown')
-                            if file_path not in docs_by_file:
-                                docs_by_file[file_path] = []
-                            docs_by_file[file_path].append(doc)
-
-                        # Format context text with file path grouping
-                        context_parts = []
-                        for file_path, docs in docs_by_file.items():
-                            # Add file header with metadata
-                            header = f"## File Path: {file_path}\n\n"
-                            # Add document content
-                            content = "\n\n".join([doc.text for doc in docs])
-
-                            context_parts.append(f"{header}{content}")
-
-                        # Join all parts with clear separation
-                        context_text = "\n\n" + "-" * 10 + "\n\n".join(context_parts)
-                    else:
-                        logger.warning("No documents retrieved from RAG")
-                except Exception as e:
-                    logger.error(f"Error in RAG retrieval: {str(e)}")
-                    # Continue without RAG if there's an error
-
+                cag_file_contents = cag_context.read_files(request.repo_url, request.relevant_files)
+                if cag_file_contents:
+                    context_text = cag_context.build_context_block(cag_file_contents)
+                    logger.info(f"CAG: read {len(cag_file_contents)} files, context size: {len(context_text)} chars")
+                else:
+                    logger.warning("CAG: no files could be read")
             except Exception as e:
-                logger.error(f"Error retrieving documents: {str(e)}")
+                logger.error(f"CAG: error reading files: {str(e)}")
                 context_text = ""
 
         # Get repository information
@@ -312,9 +242,8 @@ async def chat_completions_stream(request: ChatCompletionRequest):
 
         # Format conversation history
         conversation_history = ""
-        for turn_id, turn in request_rag.memory().items():
-            if not isinstance(turn_id, int) and hasattr(turn, 'user_query') and hasattr(turn, 'assistant_response'):
-                conversation_history += f"<turn>\n<user>{turn.user_query.query_str}</user>\n<assistant>{turn.assistant_response.response_str}</assistant>\n</turn>\n"
+        for user_query, assistant_response in conversation_turns:
+            conversation_history += f"<turn>\n<user>{user_query}</user>\n<assistant>{assistant_response}</assistant>\n</turn>\n"
 
         # Create the prompt with context
         prompt = f"/no_think {system_prompt}\n\n"
@@ -333,9 +262,8 @@ async def chat_completions_stream(request: ChatCompletionRequest):
         if context_text.strip():
             prompt += f"{CONTEXT_START}\n{context_text}\n{CONTEXT_END}\n\n"
         else:
-            # Add a note that we're skipping RAG due to size constraints or because it's the isolated API
-            logger.info("No context available from RAG")
-            prompt += "<note>Answering without retrieval augmentation.</note>\n\n"
+            logger.info("No CAG context available")
+            prompt += "<note>Generating without file context.</note>\n\n"
 
         prompt += f"<query>\n{query}\n</query>\n\nAssistant: "
 
@@ -349,6 +277,7 @@ async def chat_completions_stream(request: ChatCompletionRequest):
             model_config["reasoning_effort"] = request.reasoning_effort
         tool_executor = None  # for DeepSeek agent loop
         openai_tool_executor = None  # for OpenAI GPT-5 agent loop
+        repo_cache_path = cag_context._repos.get(request.repo_url)
 
         if request.provider == "ollama":
             prompt += " /no_think"
@@ -418,8 +347,8 @@ async def chat_completions_stream(request: ChatCompletionRequest):
             )
             # Create tool executor for agent loop (GPT-5 reasoning models)
             openai_tool_executor = ToolExecutor(
-                rag_instance=request_rag,
-                repo_cache_path=request_rag.db_manager.repo_paths.get("save_repo_dir") if request_rag.db_manager.repo_paths else None
+                rag_instance=None,
+                repo_cache_path=repo_cache_path
             ) if "reasoning_effort" in model_config else None
         elif request.provider == "bedrock":
             logger.info(f"Using AWS Bedrock with model: {request.model}")
@@ -512,8 +441,8 @@ async def chat_completions_stream(request: ChatCompletionRequest):
             )
             # Create tool executor for agent loop
             tool_executor = ToolExecutor(
-                rag_instance=request_rag,
-                repo_cache_path=request_rag.db_manager.repo_paths.get("save_repo_dir") if request_rag.db_manager.repo_paths else None
+                rag_instance=None,
+                repo_cache_path=repo_cache_path
             )
         else:
             # Google provider — use new google-genai SDK
@@ -650,7 +579,7 @@ async def chat_completions_stream(request: ChatCompletionRequest):
                         if request.filePath and file_content:
                             simplified_prompt += f"<currentFileContent path=\"{request.filePath}\">\n{file_content}\n</currentFileContent>\n\n"
 
-                        simplified_prompt += "<note>Answering without retrieval augmentation due to input size constraints.</note>\n\n"
+                        simplified_prompt += "<note>Generating without file context due to input size constraints.</note>\n\n"
                         simplified_prompt += f"<query>\n{query}\n</query>\n\nAssistant: "
 
                         if request.provider == "ollama":
