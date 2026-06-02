@@ -442,7 +442,12 @@ function doSanitize(chart: string): string {
       });
 
       // Fix arrow-to-bracket without node ID: A -->[text] → A --> _[text]
-      line = line.replace(/(-->\s*)([\[\(\{])/g, '$1_$2');
+      if (/-->\s*\[/.test(line)) {
+        console.error(`SANITIZER DBG: detected -->[ at: [${line.trim()}]`);
+      }
+      line = line.replace(/-->\s*\[/g, '-->_[');
+      line = line.replace(/-->\s*(?=\()/g, '-->_(');
+      line = line.replace(/-->\s*(?=\{)/g, '-->_{');
 
       // Wrap bare text after arrows if it has spaces/special chars but no node syntax
       // e.g., X --> text with spaces → X --> [text with spaces]
