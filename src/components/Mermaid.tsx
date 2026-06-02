@@ -371,15 +371,25 @@ function sanitizeMermaidChart(chart: string): string {
       // Replace <br/> and <br> with space (common LLM artifact)
       line = line.replace(/<br\s*\/?>/gi, ' ');
 
-      // Escape curly braces inside bracket labels [...] and quoted labels "..."
-      line = line.replace(/(\[[^\]]*\])|("[^"]*")/g, (match) => {
+      // Escape special chars inside bracket labels [...] and round labels (...)
+      line = line.replace(/(\[[^\]]*\])|(\([^)]*\))/g, (match) => {
+        return match
+          .replace(/\{/g, '#123;')
+          .replace(/\}/g, '#125;')
+          .replace(/"/g, '#quot;');
+      });
+
+      // Escape special chars inside Mermaid double-quoted strings
+      line = line.replace(/"[^"]*"/g, (match) => {
         return match.replace(/\{/g, '#123;').replace(/\}/g, '#125;');
       });
 
-      // Escape curly braces inside round labels (...) (flowchart nodes)
-      line = line.replace(/(\([^)]*\))/g, (match) => {
-        return match.replace(/\{/g, '#123;').replace(/\}/g, '#125;');
-      });
+      // Strip activation +/- from sequence diagram arrows (LLMs misuse them)
+      // Matches: ->>+B, ->>-B, ->>+ B, ->>- B, etc.
+      if (/--?(>>|>)\s*[+-]/.test(line)) {
+        line = line.replace(/(--?(?:>>|>))\s*[+-](?=\s)/g, '$1 ');
+        line = line.replace(/(--?(?:>>|>))\s*[+-]/g, '$1');
+      }
 
       return line;
     })
@@ -448,12 +458,12 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
     const renderChart = async () => {
       if (!isMounted) return;
 
+      // Sanitize chart content: fix common LLM-generated Mermaid syntax issues
+      const sanChart = sanitizeMermaidChart(chart);
+
       try {
         setError(null);
         setSvg('');
-
-        // Sanitize chart content: fix common LLM-generated Mermaid syntax issues
-        const sanChart = sanitizeMermaidChart(chart);
 
         // Render the chart
         const { svg: renderedSvg } = await mermaid.render(idRef.current, sanChart);
@@ -490,9 +500,10 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
           setError(`Failed to render diagram: ${errorMessage}`);
 
           if (mermaidRef.current) {
+            const escapedChart = sanChart.replace(/</g, '&lt;').replace(/>/g, '&gt;');
             mermaidRef.current.innerHTML = `
               <div class="text-red-500 dark:text-red-400 text-xs mb-1">Syntax error in diagram</div>
-              <pre class="text-xs overflow-auto p-2 bg-gray-100 dark:bg-gray-800 rounded">${chart}</pre>
+              <pre class="text-xs overflow-auto p-2 bg-gray-100 dark:bg-gray-800 rounded">${escapedChart}</pre>
             `;
           }
         }
