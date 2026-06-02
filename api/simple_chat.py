@@ -764,6 +764,9 @@ async def chat_completions_stream(request: ChatCompletionRequest):
 
 # --- Batch page generation endpoint (CAG + SSE streaming) ---
 
+# Maximum concurrent LLM calls for batch generation (up to page count)
+_BATCH_MAX_CONCURRENT = int(os.environ.get("DEEPWIKI_BATCH_CONCURRENT", "50"))
+
 class BatchPageItem(BaseModel):
     page_id: str = Field(..., description="Unique page identifier")
     prompt_content: str = Field(..., description="The complete prompt content for this page")
