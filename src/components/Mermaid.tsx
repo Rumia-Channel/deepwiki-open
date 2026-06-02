@@ -377,21 +377,22 @@ function sanitizeMermaidChart(chart: string): string {
         (_m: string, word: string) => `subgraph ${word}_`
       );
 
-      // Escape special chars inside bracket labels [...]
-      // Mermaid treats \", ', (, ), {, } as special inside labels
-      line = line.replace(/\[[^\]]*\]/g, (match) => {
-        return match.replace(/[{}()"']/g, '');
+      // Handle bracket labels with nested brackets like [key: [u32;8]]
+      // Regex matches one level of nesting: [content] or [content [inner]]
+      line = line.replace(/\[(?:[^\[\]]|\[[^\[\]]*\])*\]/g, (match) => {
+        // Strip special chars from inside but keep outer brackets
+        const inner = match.slice(1, -1).replace(/[\[\]{}()"']/g, '');
+        return `[${inner}]`;
       });
 
-      // Same for rhombus/diamond node labels {...} (keep {} delimiters)
+      // Same for rhombus/diamond node labels {...}
       line = line.replace(/\{[^}]*\}/g, (match) => {
-        return match.replace(/[()"']/g, '');
+        return match.replace(/[\[\]()"']/g, '');
       });
 
       // Same for pipe-delimited edge labels |...|
-      line = line.replace(/\|([^|]*)\|/g, (match, content) => {
-        const cleaned = content.replace(/[{}()"']/g, '');
-        return `|${cleaned}|`;
+      line = line.replace(/\|([^|]*)\|/g, (_m, content) => {
+        return `|${content.replace(/[\[\]{}()"']/g, '')}|`;
       });
 
       // Escape curly braces inside Mermaid double-quoted strings
