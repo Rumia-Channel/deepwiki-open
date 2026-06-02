@@ -363,6 +363,19 @@ const FullScreenModal: React.FC<{
 };
 
 function sanitizeMermaidChart(chart: string): string {
+  const result = doSanitize(chart);
+  if (result.includes('|')) {
+    console.warn('SANITIZER: chart still has | after sanitization');
+    const lines = result.split('\n');
+    const rawLines = chart.split('\n');
+    lines.forEach((l, i) => { if (l.includes('|')) {
+      console.warn(`  line ${i + 1}: raw=[${rawLines[i]?.trim() || ''}] → sanitized=[${l.trim()}]`);
+    }});
+  }
+  return result;
+}
+
+function doSanitize(chart: string): string {
   // Pre-pass: convert fullwidth brackets that LLMs copy-paste from Japanese text
   chart = chart
     .replace(/【/g, '[').replace(/】/g, ']')
@@ -427,6 +440,9 @@ function sanitizeMermaidChart(chart: string): string {
       validPipes.forEach((p, i) => {
         line = line.replace(`\x00P${i}\x00`, p);
       });
+
+      // Fix arrow-to-bracket without node ID: A -->[text] → A --> _[text]
+      line = line.replace(/(-->\s*)([\[\(\{])/g, '$1_$2');
 
       // Wrap bare text after arrows if it has spaces/special chars but no node syntax
       // e.g., X --> text with spaces → X --> [text with spaces]
