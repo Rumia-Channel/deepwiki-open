@@ -100,8 +100,8 @@ async def chat_completions_stream(request: ChatCompletionRequest):
             if hasattr(last_message, 'content') and last_message.content:
                 tokens = count_tokens(last_message.content, request.provider == "ollama")
                 logger.info(f"Request size: {tokens} tokens")
-                if tokens > 8000:
-                    logger.warning(f"Request exceeds recommended token limit ({tokens} > 7500)")
+                if tokens > 100000:
+                    logger.warning(f"Request exceeds token limit ({tokens} > 100000), skipping CAG context")
                     input_too_large = True
 
         # Validate request

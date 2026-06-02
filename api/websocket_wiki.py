@@ -112,8 +112,9 @@ async def handle_websocket_chat(websocket: WebSocket):
             if hasattr(last_message, 'content') and last_message.content:
                 tokens = count_tokens(last_message.content, request.provider == "ollama")
                 logger.info(f"Request size: {tokens} tokens")
-                if tokens > 8000:
-                    logger.warning(f"Request exceeds recommended token limit ({tokens} > 7500)")
+                # Structure generation may have large file trees; skip CAG for per-page prompts that exceed limit
+                if tokens > 100000:
+                    logger.warning(f"Request exceeds token limit ({tokens} > 100000), skipping CAG context")
                     input_too_large = True
 
         # Validate request
