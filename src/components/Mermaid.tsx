@@ -404,6 +404,11 @@ function sanitizeMermaidChart(chart: string): string {
       line = line.replace(/(-{1,3}(?:>>|>))\s*[+-](\s*)(?=[^\s:])/g, '$1$2');
       line = line.replace(/(-{1,3}(?:>>|>))\s*[+-]/g, '$1');
 
+      // Comment out standalone activate/deactivate (LLMs misuse them)
+      if (/^\s*(?:de)?activate\s+\w+/i.test(line.trim())) {
+        line = '%% ' + line.trim();
+      }
+
       return line;
     })
     .join('\n')
