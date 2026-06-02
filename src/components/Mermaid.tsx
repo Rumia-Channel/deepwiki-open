@@ -371,6 +371,12 @@ function sanitizeMermaidChart(chart: string): string {
       // Replace <br/> and <br> with space (common LLM artifact)
       line = line.replace(/<br\s*\/?>/gi, ' ');
 
+      // Rename subgraph IDs that are Mermaid reserved words
+      line = line.replace(
+        /\bsubgraph\s+(default|graph|subgraph|end|direction|class|style)\b/gi,
+        (_m: string, word: string) => `subgraph ${word}_`
+      );
+
       // Escape special chars inside bracket labels [...]
       // Mermaid treats \", ', (, ), {, } as special inside labels
       line = line.replace(/\[[^\]]*\]/g, (match) => {
