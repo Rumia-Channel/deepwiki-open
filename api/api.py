@@ -140,10 +140,9 @@ class WikiCacheRequest(BaseModel):
     language: str
     wiki_structure: WikiStructureModel
     generated_pages: Dict[str, WikiPage]
-    provider: str
+    provider: Optional[str] = None
     model: Optional[str] = None
     authorization_code: Optional[str] = None
-    model: str
 
 class WikiExportRequest(BaseModel):
     """
@@ -206,15 +205,22 @@ async def csrf_middleware(request: Request, call_next):
         origin = request.headers.get("origin")
         host = request.headers.get("host", "")
         if origin and host and not origin.endswith("://" + host.split(",")[0].strip()):
-            # Allow if origin ends with host (same-origin or subdomain)
             from urllib.parse import urlparse
             parsed_origin = urlparse(origin)
             origin_host = parsed_origin.netloc or ""
-            if origin_host and origin_host != host.split(",")[0].strip():
-                return JSONResponse(
-                    status_code=403,
-                    content={"error": "Cross-origin state-changing requests are not allowed."},
-                )
+            target_host = host.split(",")[0].strip()
+            if origin_host and origin_host != target_host:
+                # Allow Next.js dev proxy (localhost:3000) and production same-host
+                allowed_origins = {target_host}
+                if target_host.endswith(":8001"):
+                    allowed_origins.add(target_host.replace(":8001", ":3000"))
+                if target_host.endswith(":3000"):
+                    allowed_origins.add(target_host.replace(":3000", ":8001"))
+                if origin_host not in allowed_origins:
+                    return JSONResponse(
+                        status_code=403,
+                        content={"error": "Cross-origin state-changing requests are not allowed."},
+                    )
     return await call_next(request)
 
 @app.get("/lang/config")
