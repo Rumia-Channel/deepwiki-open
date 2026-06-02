@@ -400,11 +400,9 @@ function sanitizeMermaidChart(chart: string): string {
       });
 
       // Strip activation +/- from sequence diagram arrows (LLMs misuse them)
-      // Matches: ->>+B, ->>-B, ->>+ B, ->>- B, etc.
-      if (/--?(>>|>)\s*[+-]/.test(line)) {
-        line = line.replace(/(--?(?:>>|>))\s*[+-](?=\s)/g, '$1 ');
-        line = line.replace(/(--?(?:>>|>))\s*[+-]/g, '$1');
-      }
+      // Matches: ->>+B, -->>-B, ->>+ B, --->-B, etc.
+      line = line.replace(/(-{1,3}(?:>>|>))\s*[+-](\s*)(?=[^\s:])/g, '$1$2');
+      line = line.replace(/(-{1,3}(?:>>|>))\s*[+-]/g, '$1');
 
       return line;
     })
