@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 
 # Maximum size of a single file to include in context (bytes)
 MAX_FILE_SIZE_BYTES = 200 * 1024  # 200KB
-# Maximum total context size to include (chars) — ~100K tokens for DeepSeek CAG
-MAX_TOTAL_CONTEXT_CHARS = 1_200_000
+# Maximum total context size to include (chars) — ~850K tokens, DeepSeek 1M window safe
+MAX_TOTAL_CONTEXT_CHARS = 2_000_000
 # Text file extensions to include in context
 TEXT_EXTENSIONS = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".c", ".cpp", ".h", ".hpp",
