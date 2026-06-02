@@ -1,7 +1,7 @@
 """CAG (Cache-Augmented Generation) module.
 
 Replaces RAG/embedding with direct file context feeding.
-DeepSeek's KV cache auto-caches the file prefix for subsequent requests.
+DeepSeek's KV cache auto-caches the shared file prefix across pages.
 """
 
 import logging
@@ -17,12 +17,23 @@ logger = logging.getLogger(__name__)
 
 # Maximum size of a single file to include in context (bytes)
 MAX_FILE_SIZE_BYTES = 200 * 1024  # 200KB
-# Maximum total context size to include (chars)
-MAX_TOTAL_CONTEXT_CHARS = 400_000
+# Maximum total context size to include (chars) — ~100K tokens for DeepSeek CAG
+MAX_TOTAL_CONTEXT_CHARS = 1_200_000
+# Text file extensions to include in context
+TEXT_EXTENSIONS = {
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".c", ".cpp", ".h", ".hpp",
+    ".go", ".rs", ".rb", ".php", ".swift", ".kt", ".scala", ".cs", ".vb",
+    ".html", ".css", ".scss", ".less", ".xml", ".json", ".yaml", ".yml",
+    ".toml", ".ini", ".cfg", ".conf", ".md", ".txt", ".rst", ".sh", ".bash",
+    ".zsh", ".fish", ".ps1", ".bat", ".sql", ".r", ".m", ".mm",
+    ".pl", ".pm", ".lua", ".dart", ".ex", ".exs", ".erl", ".hrl", ".hs",
+    ".lhs", ".clj", ".cljs", ".edn", ".elm", ".vue", ".svelte", ".sol",
+    ".proto", ".graphql", ".prisma", ".tf", ".hcl", ".dockerfile", ".makefile",
+    ".cmake", ".gradle", ".groovy", ".jl", ".nim", ".zig", ".v", ".sv",
+}
 
 
 def _sanitize_path_component(name: str) -> str:
-    """Strip path separators, null bytes, and traversal sequences from a path component."""
     sanitized = name.replace("\x00", "").replace("/", "_").replace("\\", "_")
     sanitized = re.sub(r"\.\.+", "_", sanitized)
     sanitized = re.sub(r"[^\w\-.]", "_", sanitized)
@@ -31,34 +42,35 @@ def _sanitize_path_component(name: str) -> str:
 
 
 def _extract_repo_name(repo_url_or_path: str, repo_type: str = "github") -> str:
-    """Extract a unique repo name from URL or path."""
     url_parts = repo_url_or_path.rstrip("/").split("/")
-
     if repo_type in ["github", "gitlab", "bitbucket"] and len(url_parts) >= 5:
         owner = _sanitize_path_component(url_parts[-2])
         repo = _sanitize_path_component(url_parts[-1].replace(".git", ""))
-        repo_name = f"{owner}_{repo}"
-    else:
-        repo_name = _sanitize_path_component(url_parts[-1].replace(".git", ""))
-
-    return repo_name
+        return f"{owner}_{repo}"
+    return _sanitize_path_component(url_parts[-1].replace(".git", ""))
 
 
 def _get_repo_local_path(repo_url_or_path: str, repo_type: str = "github") -> str:
-    """Get the local filesystem path where a repo should be cloned."""
     root_path = get_adalflow_default_root_path()
     if repo_url_or_path.startswith("https://") or repo_url_or_path.startswith("http://"):
         repo_name = _extract_repo_name(repo_url_or_path, repo_type)
         return os.path.join(root_path, "repos", repo_name)
-    else:
-        return repo_url_or_path
+    return repo_url_or_path
 
 
 class CAGContext:
-    """Manages repo cloning and file reading for CAG-based wiki generation."""
+    """Manages repo cloning and CAG context building for wiki generation.
+
+    CAG strategy: build ONE shared context block from all source files
+    (sorted by path for deterministic ordering). This block is prepended
+    to every page-generation request so DeepSeek's KV cache can reuse
+    the cached computation across all pages.
+    """
 
     def __init__(self):
-        self._repos: Dict[str, str] = {}  # repo_url -> local_path
+        self._repos: Dict[str, str] = {}         # repo_url -> local_path
+        self._context_cache: Dict[str, str] = {}  # repo_url -> built context block
+        self._context_file_count: Dict[str, int] = {}  # repo_url -> file count in context
 
     def clone_repo(
         self,
@@ -66,8 +78,12 @@ class CAGContext:
         repo_type: str = "github",
         access_token: Optional[str] = None,
     ) -> str:
-        """Clone/download a repo and return the local path."""
+        """Clone/download a repo, invalidating any cached context."""
         save_repo_dir = _get_repo_local_path(repo_url_or_path, repo_type)
+
+        # Invalidate context cache so next build_full_context reads fresh files
+        self._context_cache.pop(repo_url_or_path, None)
+        self._context_file_count.pop(repo_url_or_path, None)
 
         if save_repo_dir and os.path.isdir(save_repo_dir) and os.listdir(save_repo_dir):
             logger.info(f"Repo already cloned at {save_repo_dir}")
@@ -84,12 +100,83 @@ class CAGContext:
             logger.error(f"Failed to clone repo: {e}")
             raise
 
+    def get_context_block(self, repo_url_or_path: str) -> str:
+        """Get the cached CAG context block for a repo, building it if needed.
+
+        Returns a shared prefix string that DeepSeek will KV-cache across
+        all page-generation requests.
+        """
+        if repo_url_or_path in self._context_cache:
+            logger.info(
+                f"CAG context cache HIT: {repo_url_or_path} "
+                f"({self._context_file_count.get(repo_url_or_path, 0)} files)"
+            )
+            return self._context_cache[repo_url_or_path]
+
+        logger.info(f"CAG: building full context for {repo_url_or_path} ...")
+        local_path = self._repos.get(repo_url_or_path)
+        if not local_path or not os.path.isdir(local_path):
+            raise ValueError(f"Repo not cloned yet: {repo_url_or_path}")
+
+        # Walk the repo and collect text files
+        entries = []
+        for root, dirs, files in os.walk(local_path):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            for f in files:
+                ext = os.path.splitext(f)[1].lower()
+                if ext not in TEXT_EXTENSIONS:
+                    continue
+                full_path = os.path.join(root, f)
+                try:
+                    if os.path.getsize(full_path) > MAX_FILE_SIZE_BYTES:
+                        continue
+                except OSError:
+                    continue
+                rel_path = os.path.relpath(full_path, local_path).replace("\\", "/")
+                entries.append((rel_path, full_path))
+
+        # Sort by path for deterministic ordering (critical for KV cache reuse)
+        entries.sort(key=lambda x: x[0])
+
+        # Build context block, respecting max size
+        parts = ["<repository_context>\n"]
+        total_chars = 0
+        file_count = 0
+        for rel_path, full_path in entries:
+            if total_chars >= MAX_TOTAL_CONTEXT_CHARS:
+                logger.warning(
+                    f"CAG: reached max context size ({MAX_TOTAL_CONTEXT_CHARS} chars), "
+                    f"stopped at {file_count}/{len(entries)} files"
+                )
+                break
+            try:
+                content = Path(full_path).read_text(encoding="utf-8", errors="replace")
+                parts.append(f'<file path="{rel_path}">\n')
+                parts.append(content)
+                parts.append("\n</file>\n")
+                total_chars += len(content)
+                file_count += 1
+            except Exception as e:
+                logger.warning(f"CAG: error reading {rel_path}: {e}")
+                continue
+
+        parts.append("</repository_context>")
+        context = "\n".join(parts)
+
+        self._context_cache[repo_url_or_path] = context
+        self._context_file_count[repo_url_or_path] = file_count
+        logger.info(
+            f"CAG: context built — {file_count} files, "
+            f"{len(context):,} chars (~{len(context)//4} tokens)"
+        )
+        return context
+
     def read_files(
         self,
         repo_url_or_path: str,
         file_paths: List[str],
     ) -> Dict[str, str]:
-        """Read specified files from a cloned repo. Returns {file_path: content}."""
+        """Read specific files from a cloned repo. Utility method."""
         local_path = self._repos.get(repo_url_or_path)
         if not local_path or not os.path.isdir(local_path):
             raise ValueError(f"Repo not cloned yet: {repo_url_or_path}")
@@ -98,45 +185,19 @@ class CAGContext:
         total_chars = 0
         for fp in file_paths:
             if total_chars >= MAX_TOTAL_CONTEXT_CHARS:
-                logger.warning(f"Reached max context size ({MAX_TOTAL_CONTEXT_CHARS} chars), stopping file read")
                 break
-
             full_path = Path(local_path) / fp.lstrip("/")
             if not full_path.is_file():
-                logger.warning(f"File not found: {full_path}")
                 continue
-
             try:
-                file_size = full_path.stat().st_size
-                if file_size > MAX_FILE_SIZE_BYTES:
-                    logger.warning(f"File too large ({file_size}B > {MAX_FILE_SIZE_BYTES}B): {fp}")
+                if full_path.stat().st_size > MAX_FILE_SIZE_BYTES:
                     continue
-
                 content = full_path.read_text(encoding="utf-8", errors="replace")
                 result[fp] = content
                 total_chars += len(content)
-            except Exception as e:
-                logger.warning(f"Error reading file {fp}: {e}")
+            except Exception:
                 continue
-
         return result
-
-    def build_context_block(self, file_contents: Dict[str, str]) -> str:
-        """Build a CAG context block from file contents.
-
-        This is the prefix that DeepSeek's KV cache will cache.
-        All file contents are wrapped in XML for structured parsing by the LLM.
-        """
-        if not file_contents:
-            return ""
-
-        parts = ["<repository_context>\n"]
-        for file_path, content in file_contents.items():
-            parts.append(f'<file path="{file_path}">\n')
-            parts.append(content)
-            parts.append(f"\n</file>\n")
-        parts.append("</repository_context>")
-        return "\n".join(parts)
 
 
 # Global CAG context instance

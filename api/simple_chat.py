@@ -163,20 +163,16 @@ async def chat_completions_stream(request: ChatCompletionRequest):
         # Get the query from the last message
         query = last_message.content
 
-        # CAG: Build context from relevant files (replaces RAG retrieval)
+        # CAG: Use shared full-repo context block (KV-cacheable across pages)
         context_text = ""
-        cag_file_contents = {}
 
-        if not input_too_large and request.relevant_files:
+        if not input_too_large:
             try:
-                cag_file_contents = cag_context.read_files(request.repo_url, request.relevant_files)
-                if cag_file_contents:
-                    context_text = cag_context.build_context_block(cag_file_contents)
-                    logger.info(f"CAG: read {len(cag_file_contents)} files, context size: {len(context_text)} chars")
-                else:
-                    logger.warning("CAG: no files could be read")
+                context_text = cag_context.get_context_block(request.repo_url)
+                if not context_text:
+                    logger.warning("CAG: context block is empty")
             except Exception as e:
-                logger.error(f"CAG: error reading files: {str(e)}")
+                logger.error(f"CAG: error building context: {str(e)}")
                 context_text = ""
 
         # Get repository information
