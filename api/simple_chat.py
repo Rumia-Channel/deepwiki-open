@@ -760,6 +760,156 @@ async def chat_completions_stream(request: ChatCompletionRequest):
         logger.error(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
 
+# --- Batch page generation endpoint (CAG + SSE streaming) ---
+
+import asyncio
+from fastapi.responses import StreamingResponse
+import json
+
+# Maximum concurrent LLM calls for batch generation
+_BATCH_MAX_CONCURRENT = int(os.environ.get("DEEPWIKI_BATCH_CONCURRENT", "10"))
+
+class BatchPageItem(BaseModel):
+    page_id: str = Field(..., description="Unique page identifier")
+    prompt_content: str = Field(..., description="The complete prompt content for this page")
+
+class BatchPageRequest(BaseModel):
+    """Request model for batch wiki page generation."""
+    repo_url: str = Field(..., description="URL of the repository")
+    type: Optional[str] = Field("github", description="Repository type")
+    token: Optional[str] = Field(None, description="Access token for private repos")
+    provider: str = Field("deepseek", description="Model provider")
+    model: Optional[str] = Field(None, description="Model name")
+    thinking_enabled: Optional[bool] = Field(None)
+    reasoning_effort: Optional[str] = Field(None)
+    force_reclone: Optional[bool] = Field(False)
+    pages: List[BatchPageItem] = Field(..., description="List of pages to generate")
+
+@app.post("/chat/batch")
+async def chat_batch(request: BatchPageRequest):
+    """Generate multiple wiki pages in parallel via SSE streaming.
+
+    Each page is generated independently with the shared CAG context.
+    Results are streamed back as SSE events tagged with page_id.
+    """
+    if not request.pages:
+        raise HTTPException(status_code=400, detail="No pages provided")
+
+    semaphore = asyncio.Semaphore(_BATCH_MAX_CONCURRENT)
+
+    # Pre-warm CAG context (clone/build once for all pages)
+    context_text = ""
+    try:
+        context_text = cag_context.get_context_block(
+            request.repo_url, request.type, request.token,
+            force_reclone=request.force_reclone or False
+        )
+    except Exception as e:
+        logger.error(f"Batch CAG error: {e}")
+
+    model_config = get_model_config(request.provider, request.model)
+
+    async def generate_page(page: BatchPageItem) -> List[str]:
+        """Generate one page, returning SSE-formatted chunks."""
+        async with semaphore:
+            chunks_to_send: List[str] = []
+            try:
+                system_prompt = (
+                    "You are an expert technical writer and software architect.\n"
+                )
+                CONTEXT_START = "<START_OF_CONTEXT>"
+                CONTEXT_END = "<END_OF_CONTEXT>"
+
+                prompt = f"/no_think {system_prompt}\n\n"
+                if context_text.strip():
+                    prompt += f"{CONTEXT_START}\n{context_text}\n{CONTEXT_END}\n\n"
+                prompt += f"<query>\n{page.prompt_content}\n</query>\n\nAssistant: "
+
+                model_kwargs = {**model_config["model_kwargs"]}
+                if request.thinking_enabled is not None:
+                    model_kwargs["thinking"] = request.thinking_enabled
+                if request.reasoning_effort:
+                    model_kwargs["reasoning_effort"] = request.reasoning_effort
+                model_kwargs["stream"] = True
+                model_kwargs["model"] = request.model
+
+                if request.provider == "deepseek":
+                    from api.deepseek_client import DeepSeekClient, parse_stream_response_for_deepseek
+                    if model_kwargs.get("thinking"):
+                        thinking_body = {"type": "enabled"}
+                        if model_kwargs.get("reasoning_effort"):
+                            thinking_body["reasoning_effort"] = model_kwargs["reasoning_effort"]
+                        model_kwargs["thinking"] = thinking_body
+                        model_kwargs.pop("temperature", None)
+                        model_kwargs.pop("top_p", None)
+                    client = DeepSeekClient()
+                elif request.provider == "openai":
+                    from api.openai_client import OpenAIClient
+                    client = OpenAIClient()
+                else:
+                    # Fallback to SimpleChat-style streaming
+                    from api.openai_client import OpenAIClient
+                    client = OpenAIClient()
+
+                api_kwargs = client.convert_inputs_to_api_kwargs(
+                    input=prompt,
+                    model_kwargs=model_kwargs,
+                    model_type=ModelType.LLM
+                )
+
+                response = await client.acall(api_kwargs=api_kwargs, model_type=ModelType.LLM)
+
+                if request.provider == "deepseek":
+                    from api.deepseek_client import parse_stream_response_for_deepseek
+                    async for chunk in response:
+                        text = parse_stream_response_for_deepseek(chunk)
+                        if text:
+                            chunks_to_send.append(
+                                f"data: {json.dumps({'page_id': page.page_id, 'chunk': text})}\n\n"
+                            )
+                else:
+                    async for chunk in response:
+                        choices = getattr(chunk, "choices", [])
+                        if len(choices) > 0:
+                            delta = getattr(choices[0], "delta", None)
+                            if delta is not None:
+                                text = getattr(delta, "content", None)
+                                if text is not None:
+                                    chunks_to_send.append(
+                                        f"data: {json.dumps({'page_id': page.page_id, 'chunk': text})}\n\n"
+                                    )
+
+            except Exception as e:
+                logger.error(f"Batch page {page.page_id} error: {e}")
+                chunks_to_send.append(
+                    f"data: {json.dumps({'page_id': page.page_id, 'error': str(e)})}\n\n"
+                )
+
+            # Signal page completion
+            chunks_to_send.append(
+                f"data: {json.dumps({'page_id': page.page_id, 'done': True})}\n\n"
+            )
+            return chunks_to_send
+
+    async def event_stream():
+        tasks = [generate_page(page) for page in request.pages]
+        # Process results as they complete
+        for coro in asyncio.as_completed(tasks):
+            chunks = await coro
+            for c in chunks:
+                yield c
+
+    response_headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers=response_headers,
+    )
+
 @app.get("/")
 async def root():
     """Root endpoint to check if the API is running"""

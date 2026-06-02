@@ -1092,68 +1092,195 @@ IMPORTANT:
       // Reset force reclone flag after structure request consumed it
       forceRecloneRef.current = false;
 
-      // Start generating content for all pages with controlled concurrency
+      // Start generating content for all pages via batch SSE
       if (pages.length > 0) {
         // Mark all pages as in progress
         const initialInProgress = new Set(pages.map(p => p.id));
         setPagesInProgress(initialInProgress);
 
-        console.log(`Starting generation for ${pages.length} pages with controlled concurrency`);
+        console.log(`Starting batch generation for ${pages.length} pages`);
 
-        // Maximum concurrent requests (5 parallel WebSocket connections for page generation)
-        const MAX_CONCURRENT = 5;
+        // Build prompts for all pages
+        const batchPages = pages.map(page => ({
+          page_id: page.id,
+          prompt_content: `You are an expert technical writer and software architect.
+Your task is to generate a comprehensive and accurate technical wiki page in Markdown format about a specific feature, system, or module within a given software project.
 
-        // Create a queue of pages
-        const queue = [...pages];
-        let activeRequests = 0;
+You will be given:
+1. The "[WIKI_PAGE_TOPIC]" for the page you need to create.
+2. The complete source code of the repository in a \`<repository_context>\` block. You have access to ALL project files. Use the ones most relevant to this page topic. You MUST cite AT LEAST 5 different source files throughout the wiki page to ensure comprehensive coverage.
 
-        // Function to process next items in queue
-        const processQueue = () => {
-          // Process as many items as we can up to our concurrency limit
-          while (queue.length > 0 && activeRequests < MAX_CONCURRENT) {
-            const page = queue.shift();
-            if (page) {
-              activeRequests++;
-              console.log(`Starting page ${page.title} (${activeRequests} active, ${queue.length} remaining)`);
+CRITICAL STARTING INSTRUCTION:
+The very first thing on the page MUST be a \`<details>\` block listing ALL the source files you used to generate the content. There MUST be AT LEAST 5 source files listed.
+Format it exactly like this:
+<details>
+<summary>Relevant source files</summary>
 
-              // Start generating content for this page
-              generatePageContent(page, owner, repo)
-                .finally(() => {
-                  // When done (success or error), decrement active count and process more
-                  activeRequests--;
-                  console.log(`Finished page ${page.title} (${activeRequests} active, ${queue.length} remaining)`);
+The following files were used as context for generating this wiki page:
 
-                  // Check if all work is done (queue empty and no active requests)
-                  if (queue.length === 0 && activeRequests === 0) {
-                    console.log("All page generation tasks completed.");
-                    setIsLoading(false);
-                    setLoadingMessage(undefined);
-                  } else {
-                    // Only process more if there are items remaining and we're under capacity
-                    if (queue.length > 0 && activeRequests < MAX_CONCURRENT) {
-                      processQueue();
-                    }
+${page.filePaths.map(path => `- [${path}](${generateFileUrl(path)})`).join('\n')}
+</details>
+
+Immediately after the \`<details>\` block, the main title of the page should be a H1 Markdown heading: \`# ${page.title}\`.
+
+Based on the content of the repository source files:
+
+1.  **Introduction:** Start with a concise introduction (1-2 paragraphs) explaining the purpose, scope, and high-level overview of "${page.title}" within the context of the overall project. If relevant, and if information is available in the provided files, link to other potential wiki pages using the format \`[Link Text](#page-anchor-or-id)\`.
+
+2.  **Detailed Sections:** Break down "${page.title}" into logical sections using H2 (\`##\`) and H3 (\`###\`) Markdown headings. For each section:
+    *   Explain the architecture, components, data flow, or logic relevant to the section's focus, as evidenced in the source files.
+    *   Identify key functions, classes, data structures, API endpoints, or configuration elements pertinent to that section.
+
+3.  **Mermaid Diagrams:**
+    *   EXTENSIVELY use Mermaid diagrams (e.g., \`flowchart TD\`, \`sequenceDiagram\`, \`classDiagram\`, \`erDiagram\`, \`graph TD\`) to visually represent architectures, flows, relationships, and schemas found in the source files.
+    *   Ensure diagrams are accurate and directly derived from information in the \`[RELEVANT_SOURCE_FILES]\`.
+    *   Provide a brief explanation before or after each diagram to give context.
+    *   CRITICAL: All diagrams MUST follow strict vertical orientation:
+       - Use "graph TD" (top-down) directive for flow diagrams
+       - NEVER use "graph LR" (left-right)
+       - Maximum node width should be 3-4 words
+       - For sequence diagrams:
+         - Start with "sequenceDiagram" directive on its own line
+         - Define ALL participants at the beginning using "participant" keyword
+         - Optionally specify participant types: actor, boundary, control, entity, database, collections, queue
+         - Use descriptive but concise participant names, or use aliases: "participant A as Alice"
+         - Use the correct Mermaid arrow syntax (8 types available):
+           - -> solid line without arrow (rarely used)
+           - --> dotted line without arrow (rarely used)
+           - ->> solid line with arrowhead (most common for requests/calls)
+           - -->> dotted line with arrowhead (most common for responses/returns)
+           - ->x solid line with X at end (failed/error message)
+           - -->x dotted line with X at end (failed/error response)
+           - -) solid line with open arrow (async message, fire-and-forget)
+           - --) dotted line with open arrow (async response)
+           - Examples: A->>B: Request, B-->>A: Response, A->xB: Error, A-)B: Async event
+         - Use +/- suffix for activation boxes: A->>+B: Start (activates B), B-->>-A: End (deactivates B)
+         - Group related participants using "box": box GroupName ... end
+         - Use structural elements for complex flows:
+           - loop LoopText ... end (for iterations)
+           - alt ConditionText ... else ... end (for conditionals)
+           - opt OptionalText ... end (for optional flows)
+           - par ParallelText ... and ... end (for parallel actions)
+           - critical CriticalText ... option ... end (for critical regions)
+           - break BreakText ... end (for breaking flows/exceptions)
+         - Add notes for clarification: "Note over A,B: Description", "Note right of A: Detail"
+         - Use autonumber directive to add sequence numbers to messages
+         - NEVER use flowchart-style labels like A--|label|-->B. Always use a colon for labels: A->>B: My Label
+
+4.  **Tables:**
+    *   Use Markdown tables to summarize information such as:
+        *   Key features or components and their descriptions.
+        *   API endpoint parameters, types, and descriptions.
+        *   Configuration options, their types, and default values.
+        *   Data model fields, types, constraints, and descriptions.
+
+5.  **Code Snippets (ENTIRELY OPTIONAL):**
+    *   Include short, relevant code snippets (e.g., Python, Java, JavaScript, SQL, JSON, YAML) directly from the \`[RELEVANT_SOURCE_FILES]\` to illustrate key implementation details, data structures, or configurations.
+    *   Ensure snippets are well-formatted within Markdown code blocks with appropriate language identifiers.
+
+6.  **Source Citations (EXTREMELY IMPORTANT):**
+    *   For EVERY piece of significant information, explanation, diagram, table entry, or code snippet, you MUST cite the specific source file(s) and relevant line numbers from which the information was derived.
+    *   Place citations at the end of the paragraph, under the diagram/table, or after the code snippet.
+    *   Use the exact format: \`Sources: [filename.ext:start_line-end_line]()\` for a range, or \`Sources: [filename.ext:line_number]()\` for a single line. Multiple files can be cited: \`Sources: [file1.ext:1-10](), [file2.ext:5](), [dir/file3.ext]()\` (if the whole file is relevant and line numbers are not applicable or too broad).
+    *   If an entire section is overwhelmingly based on one or two files, you can cite them under the section heading in addition to more specific citations within the section.
+    *   IMPORTANT: You MUST cite AT LEAST 5 different source files throughout the wiki page to ensure comprehensive coverage.
+
+7.  **Technical Accuracy:** All information must be derived SOLELY from the \`[RELEVANT_SOURCE_FILES]\`. Do not infer, invent, or use external knowledge about similar systems or common practices unless it's directly supported by the provided code. If information is not present in the provided files, do not include it or explicitly state its absence if crucial to the topic.
+
+8.  **Clarity and Conciseness:** Use clear, professional, and concise technical language suitable for other developers working on or learning about the project. Avoid unnecessary jargon, but use correct technical terms where appropriate.
+
+9.  **Conclusion/Summary:** End with a brief summary paragraph if appropriate for "${page.title}", reiterating the key aspects covered and their significance within the project.
+
+IMPORTANT: Generate the content in ${language === 'en' ? 'English' :
+            language === 'ja' ? 'Japanese (日本語)' :
+            language === 'zh' ? 'Mandarin Chinese (中文)' :
+            language === 'zh-tw' ? 'Traditional Chinese (繁體中文)' :
+            language === 'es' ? 'Spanish (Español)' :
+            language === 'kr' ? 'Korean (한국어)' :
+            language === 'vi' ? 'Vietnamese (Tiếng Việt)' : 
+            language === "pt-br" ? "Brazilian Portuguese (Português Brasileiro)" :
+            language === "fr" ? "Français (French)" :
+            language === "ru" ? "Русский (Russian)" :
+            'English'} language.
+
+Remember:
+- Ground every claim in the provided source files.
+- Prioritize accuracy and direct representation of the code's functionality and structure.
+- Structure the document logically for easy understanding by other developers.`
+        }));
+
+        const serverBaseUrl = process.env.SERVER_BASE_URL || 'http://localhost:8001';
+        const repoUrl = getRepoUrl(effectiveRepoInfo);
+
+        // Init placeholder for all pages
+        pages.forEach(p => {
+          setGeneratedPages(prev => ({ ...prev, [p.id]: { ...p, content: '' } }));
+          setOriginalMarkdown(prev => ({ ...prev, [p.id]: '' }));
+        });
+
+        // Single batch request
+        fetch(`${serverBaseUrl}/chat/batch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repo_url: repoUrl,
+            type: effectiveRepoInfo.type,
+            token: currentToken,
+            provider: selectedProviderState,
+            model: selectedModelState || 'deepseek-v4-flash',
+            thinking_enabled: thinkingEnabled || undefined,
+            force_reclone: false,
+            pages: batchPages,
+          }),
+        }).then(async (response) => {
+          if (!response.ok) {
+            throw new Error(`Batch API error: ${response.status}`);
+          }
+          const reader = response.body?.getReader();
+          if (!reader) throw new Error('No response body');
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            // Process complete SSE events
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  if (data.error) {
+                    setGeneratedPages(prev => ({
+                      ...prev,
+                      [data.page_id]: { ...prev[data.page_id], content: `Error: ${data.error}` }
+                    }));
+                    setPagesInProgress(prev => { const n = new Set(prev); n.delete(data.page_id); return n; });
+                  } else if (data.done) {
+                    setPagesInProgress(prev => { const n = new Set(prev); n.delete(data.page_id); return n; });
+                  } else if (data.chunk) {
+                    setGeneratedPages(prev => {
+                      const existing = prev[data.page_id];
+                      return {
+                        ...prev,
+                        [data.page_id]: { ...existing, content: (existing.content || '') + data.chunk }
+                      };
+                    });
                   }
-                });
+                } catch {}
+              }
             }
           }
-
-          // Additional check: If the queue started empty or becomes empty and no requests were started/active
-          if (queue.length === 0 && activeRequests === 0 && pages.length > 0 && pagesInProgress.size === 0) {
-            // This handles the case where the queue might finish before the finally blocks fully update activeRequests
-            // or if the initial queue was processed very quickly
-            console.log("Queue empty and no active requests after loop, ensuring loading is false.");
-            setIsLoading(false);
-            setLoadingMessage(undefined);
-          } else if (pages.length === 0) {
-            // Handle case where there were no pages to begin with
-            setIsLoading(false);
-            setLoadingMessage(undefined);
-          }
-        };
-
-        // Start processing the queue
-        processQueue();
+          setIsLoading(false);
+          setLoadingMessage(undefined);
+        }).catch(err => {
+          console.error('Batch generation failed:', err);
+          setIsLoading(false);
+          setError(String(err));
+        });
       } else {
         // Set loading to false if there were no pages found
         setIsLoading(false);
